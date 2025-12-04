@@ -71,7 +71,7 @@ class TwoBodyTerm(DispTerm):
         weights = model.weight_references(
             cn, q if self.charge_dependent else None
         )
-        c6 = model.get_atomic_c6(weights)
+        c6 = model.get_atomic_c6(weights, param)
 
         return dispersion2(
             numbers,

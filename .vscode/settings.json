@@ -1,4 +1,10 @@
 {
+  "workbench.colorCustomizations": {
+    "editor.selectionBackground": "#5a823a",
+    "activityBar.background": "#7f742f",
+    "titleBar.activeBackground": "#cb8a11",
+    "titleBar.activeForeground": "#FDFAFC"
+  },
   "[python]": {
     "editor.defaultFormatter": "ms-python.black-formatter",
     "editor.detectIndentation": false,

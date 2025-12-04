@@ -83,6 +83,13 @@ class Param(TypedDict, total=False):
     doi: NotRequired[str]
     """DOI of the reference paper."""
 
+    # new added
+    dynamic_alpha_delta: NotRequired[Tensor | float]
+    """Dynamic alpha delta for all atoms."""
+    
+    c6_delta: NotRequired[Tensor | float]
+    """C6 delta for all atoms."""
+    
 
 class DispersionMethod(str, Enum):
     d3 = "d3"

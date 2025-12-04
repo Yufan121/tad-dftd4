@@ -149,6 +149,7 @@ def get_properties(
     positions: Tensor,
     charge: Tensor | None = None,
     cutoff: Cutoff | None = None,
+    param: Param | None = None,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     """
     Wrapper to evaluate properties related to this dispersion model.
@@ -187,7 +188,8 @@ def get_properties(
 
     model = D4Model(numbers, **dd)
     weights = model.weight_references(cn, q)
-    c6 = model.get_atomic_c6(weights)
-    alpha = model.get_polarizabilities(weights)
+    c6 = model.get_atomic_c6(weights, param)
+    alpha = model.get_polarizabilities(weights, param)
+    
 
     return cn, q, c6, alpha

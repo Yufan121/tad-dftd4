@@ -44,7 +44,8 @@ from tad_mctc.math import einsum
 from tad_mctc.typing import Literal, Tensor, overload
 
 from .. import data
-from ..utils import is_exceptional
+from ..damping.parameters.base import Param
+from ..utils import is_exceptional, trapzd_noref
 from .base import WF_DEFAULT, BaseModel
 
 __all__ = ["D4Model"]
@@ -264,30 +265,51 @@ class D4Model(BaseModel):
 
         return tuple(outputs)  # type: ignore
 
-    def get_atomic_c6(self, gw: Tensor) -> Tensor:
+    def get_atomic_c6(self, gw: Tensor, param: Param) -> Tensor:
         """
         Calculate atomic C6 dispersion coefficients.
+
+        This method computes C6 by:
+        1. Getting weighted polarizabilities for each atom (with optional corrections)
+        2. Performing Casimir-Polder integration over imaginary frequencies
+        3. Adding optional per-pair C6 corrections
 
         Parameters
         ----------
         gw : Tensor
             Weights for the atomic reference systems of shape
             `(..., nat, nref)`.
+        param : Param
+            Damping parameters. Can contain:
+            - ``dynamic_alpha_delta``: Per-atom polarizability corrections
+            - ``c6_delta``: Per-pair C6 corrections
 
         Returns
         -------
         Tensor
             C6 coefficients for all atom pairs of shape `(..., nat, nat)`.
         """
-        # The default einsum path is fastest if the large tensors comes first.
-        # (..., n1, n2, r1, r2) * (..., n1, r1) * (..., n2, r2) -> (..., n1, n2)
-        return einsum(
-            "...ijab,...ia,...jb->...ij",
-            *(self.rc6, gw, gw),
-            optimize=[(0, 1), (0, 1)],
-        )
+        # Get weighted polarizabilities (with optional alpha corrections)
+        weighted_alpha = self.get_weighted_pols(gw, param)
+        
+        # Perform Casimir-Polder integration to get C6 from weighted alphas
+        c6 = trapzd_noref(weighted_alpha)
+        
+        # Add optional per-pair C6 corrections
+        c6_delta = param.get("c6_delta", None)
+        if c6_delta is not None:
+            if isinstance(c6_delta, (int, float)):
+                c6 = c6 + c6_delta
+            else:
+                assert c6.shape == c6_delta.shape, (
+                    f"c6 and c6_delta must have the same shape, "
+                    f"but got {c6.shape} and {c6_delta.shape}"
+                )
+                c6 = c6 + c6_delta
+        
+        return c6
 
-    def get_weighted_pols(self, gw: Tensor) -> Tensor:
+    def get_weighted_pols(self, gw: Tensor, param: Param | None = None) -> Tensor:
         """
         Calculate the weighted polarizabilities for each atom and frequency.
 
@@ -296,6 +318,9 @@ class D4Model(BaseModel):
         gw : Tensor
             Weights for the atomic reference systems of shape
             ``(..., nat, nref)``.
+        param : Param | None, optional
+            Damping parameters. If provided and contains ``dynamic_alpha_delta``,
+            it will be added to the weighted polarizabilities. Defaults to ``None``.
 
         Returns
         -------
@@ -303,4 +328,22 @@ class D4Model(BaseModel):
             Weighted polarizabilities of shape ``(..., nat, 23)``.
         """
         a = self._get_alpha()
-        return einsum("...nr,...nrw->...nw", gw, a)
+        weighted_alpha = einsum("...nr,...nrw->...nw", gw, a)
+        
+        # Apply per-atom alpha correction if provided
+        if param is not None:
+            alpha_delta = param.get("dynamic_alpha_delta", None)
+            if alpha_delta is not None:
+                # alpha_delta should have shape (..., nat, 23) or (..., nat, 1) or (..., nat)
+                if isinstance(alpha_delta, (int, float)):
+                    # scalar case: apply to all atoms and frequencies
+                    weighted_alpha = weighted_alpha + alpha_delta
+                else:
+                    # Ensure proper broadcasting
+                    if alpha_delta.dim() < weighted_alpha.dim():
+                        # Add frequency dimension if needed
+                        while alpha_delta.dim() < weighted_alpha.dim():
+                            alpha_delta = alpha_delta.unsqueeze(-1)
+                    weighted_alpha = weighted_alpha + alpha_delta
+        
+        return weighted_alpha

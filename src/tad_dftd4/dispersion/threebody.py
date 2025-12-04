@@ -194,7 +194,7 @@ class ATM(ThreeBodyTerm, ABC):
     """
 
     @abstractmethod
-    def get_c9(self, model: ModelInst, cn: Tensor, q: Tensor | None) -> Tensor:
+    def get_c9(self, model: ModelInst, cn: Tensor, q: Tensor | None, param: Param) -> Tensor:
         """Approximate or exact C9 coefficients."""
 
     @abstractmethod
@@ -219,7 +219,7 @@ class ATM(ThreeBodyTerm, ABC):
         cutoff: Cutoff,
     ):
         # ATM-specific C9 coefficients and radii
-        c9 = self.get_c9(model, cn, q)
+        c9 = self.get_c9(model, cn, q, param)
         radii = self.get_radii(param, r4r2, rvdw)
 
         return get_atm_dispersion(
@@ -278,7 +278,7 @@ class C9ExactMixin:
     charge_dependent: bool
     """Whether the C9 coefficients depend on atomic charges."""
 
-    def get_c9(self, model: ModelInst, cn: Tensor, q: Tensor | None) -> Tensor:
+    def get_c9(self, model: ModelInst, cn: Tensor, q: Tensor | None, param: Param) -> Tensor:
         r"""
         Approximate C9 coefficients from C6 coefficients.
 
@@ -307,12 +307,12 @@ class C9ApproxMixin:
     charge_dependent: bool
     """Whether the C9 coefficients depend on atomic charges."""
 
-    def get_c9(self, model: ModelInst, cn: Tensor, q: Tensor | None) -> Tensor:
+    def get_c9(self, model: ModelInst, cn: Tensor, q: Tensor | None, param: Param) -> Tensor:
 
         weights = model.weight_references(
             cn, q if self.charge_dependent else None
         )
-        c6 = model.get_atomic_c6(weights)
+        c6 = model.get_atomic_c6(weights, param)
 
         # C9_ABC = sqrt(|C6_AB * C6_AC * C6_BC|)
         return storch.sqrt(

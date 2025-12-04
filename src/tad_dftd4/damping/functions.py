@@ -131,6 +131,8 @@ class Damping(ABC):
         alp: Tensor | float | int | None = defaults.ALP,
         bet: Tensor | float | int | None = None,
         doi: str | None = None,
+        c6_delta: Tensor | None = None,
+        dynamic_alpha_delta: Tensor | None = None,
     ) -> Tensor:
         self.doi = doi
 
@@ -186,6 +188,8 @@ class Damping(ABC):
         alp: Tensor | float | int | None = None,
         bet: Tensor | float | int | None = None,
         only_damping: bool = False,
+        c6_delta: Tensor | None = None,
+        dynamic_alpha_delta: Tensor | None = None,
     ) -> Tensor:
         """
         Calculate the damping function values.
@@ -276,6 +280,8 @@ class RationalDamping(Damping):
         alp: Tensor | float | int | None = None,
         bet: Tensor | float | int | None = None,
         only_damping: bool = False,
+        c6_delta: Tensor | None = None,
+        dynamic_alpha_delta: Tensor | None = None,
     ) -> Tensor:
         """
         Rational damped dispersion interaction between pairs.
@@ -407,6 +413,8 @@ class MZeroDamping(Damping):
         alp: Tensor | float | int | None = defaults.ALP,
         bet: Tensor | float | int | None = defaults.BET,
         only_damping: bool = False,
+        c6_delta: Tensor | None = None,
+        dynamic_alpha_delta: Tensor | None = None,
     ) -> Tensor:
         assert alp is not None
         assert bet is not None
@@ -463,6 +471,8 @@ class OptimisedPowerDamping(Damping):
         alp: Tensor | float | int | None = None,
         bet: Tensor | float | int | None = defaults.BET,
         only_damping: bool = False,
+        c6_delta: Tensor | None = None,
+        dynamic_alpha_delta: Tensor | None = None,
     ) -> Tensor:
         assert a1 is not None
         assert a2 is not None

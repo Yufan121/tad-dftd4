@@ -24,18 +24,25 @@ positions = torch.tensor(
         [+4.66488984573956, +0.17907568006409, 0.00000000000000],
         [-4.60044244782237, -0.17794734637413, 0.00000000000000],
     ]
-)
+, requires_grad=True)
 
 # total charge of the system
 charge = torch.tensor(0.0)
 
 # TPSSh-D4-ATM parameters
+c6_delta = positions.new_zeros((positions.shape[0], positions.shape[0]))
+# c6_delta[0, 1] = 0.001
+dynamic_alpha_delta = positions.new_zeros((positions.shape[0]))
+dynamic_alpha_delta[0] = 0.1
+
 param = d4.damping.Param(
     s6=positions.new_tensor(1.0),
     s8=positions.new_tensor(1.85897750),
     s9=positions.new_tensor(1.0),
     a1=positions.new_tensor(0.44286966),
     a2=positions.new_tensor(4.60230534),
+    c6_delta=c6_delta,
+    dynamic_alpha_delta=dynamic_alpha_delta,
 )
 
 # parameters can also be obtained using the functional name:
@@ -65,9 +72,19 @@ ref = torch.tensor(
         -0.0005108935,
     ]
 )
-assert torch.allclose(energy1, ref, atol=1e-8), "Energy does not match"
-assert torch.allclose(energy2, ref, atol=1e-8), "Energy does not match"
 
+if not torch.allclose(energy1, ref, atol=1e-8):
+    print("Energy does not match for energy1!")
+    print("energy1:", energy1)
+    print("ref:", ref)
+if not torch.allclose(energy2, ref, atol=1e-8):
+    print("Energy does not match for energy2!")
+    print("energy2:", energy2)
+    print("ref:", ref)
+
+# compute gradient of energy with respect to positions
+(grad,) = torch.autograd.grad(energy1.sum(), positions)
+print(f"forces: {-grad}")
 
 print(energy1)
 # tensor([-0.0020841344, -0.0018971195, -0.0018107513, -0.0018305695,

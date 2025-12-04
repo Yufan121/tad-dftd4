@@ -165,7 +165,7 @@ class BaseModel(TensorLike):
         """
 
     @abstractmethod
-    def get_atomic_c6(self, gw: Tensor) -> Tensor:
+    def get_atomic_c6(self, gw: Tensor, param: Param) -> Tensor:
         """
         Calculate atomic C6 dispersion coefficients.
 
@@ -282,7 +282,7 @@ class BaseModel(TensorLike):
     # Public methods #
     ##################
 
-    def get_polarizabilities(self, weights: Tensor) -> Tensor:
+    def get_polarizabilities(self, weights: Tensor, param: Param) -> Tensor:
         """
         Calculate static polarizabilities for all atoms.
 
@@ -298,7 +298,12 @@ class BaseModel(TensorLike):
             Polarizabilities of shape ``(..., nat)``.
         """
         # (..., n, r) * (..., n, r) -> (..., n)
-        return einsum("...nr,...nr->...n", weights, self._get_alpha()[..., 0])
+        alpha = einsum("...nr,...nr->...n", weights, self._get_alpha()[..., 0])
+        alpha_delta = param.get("dynamic_alpha_delta", torch.zeros(alpha.shape))
+        print(f"alpha: {alpha}")
+        print(f"alpha_delta: {alpha_delta}")
+        assert alpha.shape == alpha_delta.shape, f"alpha and alpha_delta must have the same shape, but got {alpha.shape} and {alpha_delta.shape}"
+        return alpha + alpha_delta
 
     ###################
     # Private methods #
@@ -365,7 +370,7 @@ class BaseModel(TensorLike):
 
     def _get_alpha(self) -> Tensor:
         """
-        Calculate reference polarizabilities.
+        Calculate reference polarizabilities. (at 23 imaginary frequencies)
 
         Returns
         -------
