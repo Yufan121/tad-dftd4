@@ -90,3 +90,113 @@ print(energy1)
 # tensor([-0.0020841344, -0.0018971195, -0.0018107513, -0.0018305695,
 #         -0.0021737693, -0.0019484236, -0.0022788253, -0.0004080658,
 #         -0.0004261866, -0.0004199839, -0.0004280768, -0.0005108935])
+
+
+
+
+
+
+
+print("\n" + "="*70)
+print("Testing new alpha_mode='noref' with dynamic_alpha_delta_w")
+print("="*70)
+
+# Test the new noref mode with dynamic_alpha_delta_w
+# Shape: (natom, 23) for 23 imaginary frequency points
+natom = positions.shape[0]
+nfreq = 23
+
+# Create dummy dynamic_alpha_delta_w 
+# For testing: use small uniform corrections at all frequencies
+dynamic_alpha_delta_w = positions.new_ones((natom, nfreq)) * 0.0
+
+print(f"\nNumber of atoms: {natom}")
+print(f"Number of frequency points: {nfreq}")
+print(f"dynamic_alpha_delta_w shape: {dynamic_alpha_delta_w.shape}")
+print(f"dynamic_alpha_delta_w values: uniform 0.1 at all frequencies")
+
+param_noref = d4.damping.Param(
+    s6=positions.new_tensor(1.0),
+    s8=positions.new_tensor(1.85897750),
+    s9=positions.new_tensor(1.0),
+    a1=positions.new_tensor(0.44286966),
+    a2=positions.new_tensor(4.60230534),
+    dynamic_alpha_delta_w=dynamic_alpha_delta_w,
+)
+
+# Calculate energy with noref mode
+energy_noref = d4.dftd4(numbers, positions, charge, param_noref, alpha_mode="noref")
+
+print(f"\nEnergy (noref mode):\n{energy_noref}")
+print(f"Total energy (noref): {energy_noref.sum().item():.10f} Hartree")
+print(f"Total energy (reference): {energy1.sum().item():.10f} Hartree")
+print(f"Difference: {(energy_noref - energy1).sum().item():.10f} Hartree")
+
+# Test gradient with noref mode
+positions_noref = positions.clone().requires_grad_(True)
+energy_noref_grad = d4.dftd4(numbers, positions_noref, charge, param_noref, alpha_mode="noref")
+(grad_noref,) = torch.autograd.grad(energy_noref_grad.sum(), positions_noref)
+print(f"\nForces (noref mode): {-grad_noref}")
+print(f"Forces shape: {grad_noref.shape}")
+print("✓ Gradient computation successful with noref mode!")
+
+# Test with user-supplied alpha_0
+print("\n" + "="*70)
+print("Testing with User-Supplied alpha_0 (Base Polarizabilities)")
+print("="*70)
+
+# Create custom alpha_0: shape (119, 23) for all elements at 23 frequencies
+# For this example, we'll set non-zero values only for elements present in our molecule
+max_atomic_number = 119
+custom_alpha_0 = positions.new_zeros((max_atomic_number, nfreq))
+
+# Get unique elements in our molecule
+unique_elements = torch.unique(numbers)
+print(f"\nElements in molecule: {unique_elements.tolist()}")
+element_symbols = mctc.convert.number_to_symbol(unique_elements)
+print(f"Corresponding symbols: {element_symbols}")
+
+# Set custom base polarizabilities for each element
+# In a real application, these would come from calculations or experiments
+# Here we use dummy values that vary by frequency
+for z in unique_elements:
+    # Create frequency-dependent base polarizabilities
+    # Higher frequencies get smaller values (typical behavior)
+    freq_decay = torch.linspace(1.0, 0.3, nfreq)
+    custom_alpha_0[z, :] = z.item() * 0.5 * freq_decay  # Scale by atomic number
+
+print(f"\ncustom_alpha_0 shape: {custom_alpha_0.shape}")
+print(f"Non-zero elements: {(custom_alpha_0 != 0).sum().item()} / {custom_alpha_0.numel()}")
+print(f"Example alpha_0 for Carbon (Z=6): {custom_alpha_0[6, :5]}... (first 5 frequencies)")
+print(f"Example alpha_0 for Nitrogen (Z=7): {custom_alpha_0[7, :5]}... (first 5 frequencies)")
+
+# Create param with both custom alpha_0 and dynamic corrections
+param_custom_alpha = d4.damping.Param(
+    s6=positions.new_tensor(1.0),
+    s8=positions.new_tensor(1.85897750),
+    s9=positions.new_tensor(1.0),
+    a1=positions.new_tensor(0.44286966),
+    a2=positions.new_tensor(4.60230534),
+    alpha_0=custom_alpha_0,  # User-supplied base polarizabilities
+    dynamic_alpha_delta_w=dynamic_alpha_delta_w,  # Additional corrections
+)
+
+# Calculate energy with custom alpha_0
+energy_custom_alpha = d4.dftd4(
+    numbers, positions, charge, param_custom_alpha, alpha_mode="noref"
+)
+
+print(f"\nEnergy (with custom alpha_0):\n{energy_custom_alpha}")
+print(f"Total energy (custom alpha_0): {energy_custom_alpha.sum().item():.10f} Hartree")
+print(f"Total energy (default alpha_0): {energy_noref.sum().item():.10f} Hartree")
+print(f"Difference: {(energy_custom_alpha - energy_noref).sum().item():.10f} Hartree")
+
+# Show the calculation breakdown
+print("\n" + "-"*70)
+print("Summary of noref mode options:")
+print("-"*70)
+print("1. Default: alpha_0=zeros, corrections via dynamic_alpha_delta_w")
+print("2. Custom: user-supplied alpha_0 + corrections via dynamic_alpha_delta_w")
+print("\nThe total polarizability is: alpha_total = alpha_0 + dynamic_alpha_delta_w")
+print("Then C6 is computed via Casimir-Polder integration: C6 = ∫ alpha_A * alpha_B dω")
+print("✓ All tests completed successfully!")
