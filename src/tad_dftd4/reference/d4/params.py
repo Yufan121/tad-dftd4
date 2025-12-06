@@ -33,6 +33,7 @@ __all__ = [
     "refc",
     "secscale",
     "secalpha",
+    "alpha_0",
 ]
 
 # DFT-D4 CN (actual reference CN)
@@ -22134,3 +22135,8 @@ secalpha = torch.tensor(
     ],
     dtype=torch.float64,
 )
+
+# Base polarizabilities for no-reference-system mode (alpha_mode="noref")
+# Shape: (119, 23) for elements 0-118, at 23 imaginary frequency points
+# Initialized to zeros by default; can be overridden via Param dict with key "alpha_0"
+alpha_0 = torch.zeros((119, 23), dtype=torch.float64)

@@ -194,7 +194,14 @@ class ATM(ThreeBodyTerm, ABC):
     """
 
     @abstractmethod
-    def get_c9(self, model: ModelInst, cn: Tensor, q: Tensor | None, param: Param) -> Tensor:
+    def get_c9(
+        self, 
+        model: ModelInst, 
+        cn: Tensor, 
+        q: Tensor | None, 
+        param: Param,
+        alpha_mode: str = "reference"
+    ) -> Tensor:
         """Approximate or exact C9 coefficients."""
 
     @abstractmethod
@@ -217,9 +224,10 @@ class ATM(ThreeBodyTerm, ABC):
         r4r2: Tensor,
         rvdw: Tensor,
         cutoff: Cutoff,
+        alpha_mode: str = "reference",
     ):
         # ATM-specific C9 coefficients and radii
-        c9 = self.get_c9(model, cn, q, param)
+        c9 = self.get_c9(model, cn, q, param, alpha_mode)
         radii = self.get_radii(param, r4r2, rvdw)
 
         return get_atm_dispersion(
@@ -278,21 +286,49 @@ class C9ExactMixin:
     charge_dependent: bool
     """Whether the C9 coefficients depend on atomic charges."""
 
-    def get_c9(self, model: ModelInst, cn: Tensor, q: Tensor | None, param: Param) -> Tensor:
+    def get_c9(
+        self, 
+        model: ModelInst, 
+        cn: Tensor, 
+        q: Tensor | None, 
+        param: Param,
+        alpha_mode: str = "reference"
+    ) -> Tensor:
         r"""
-        Approximate C9 coefficients from C6 coefficients.
+        Exact C9 via Casimir–Polder integration.
 
         .. math::
 
-            C_9 = \sqrt{|C_{6}^{AB} C_{6}^{AC} C_{6}^{BC}|}
+            C_9 = \int \alpha_A(i\omega) \alpha_B(i\omega) \alpha_C(i\omega) d\omega
         """
         # pylint: disable=import-outside-toplevel
         from ..utils import trapzd_atm
+        from ..reference import d4 as d4ref
 
-        weights = model.weight_references(
-            cn, q if self.charge_dependent else None
-        )
-        aiw = model.get_weighted_pols(weights)
+        if alpha_mode == "noref":
+            # For noref mode, use dynamic_alpha_delta_w directly
+            dynamic_alpha_delta_w = param.get("dynamic_alpha_delta_w", None)
+            if dynamic_alpha_delta_w is None:
+                raise ValueError(
+                    "dynamic_alpha_delta_w is required for alpha_mode='noref'"
+                )
+            
+            # Get alpha_0 (base polarizabilities)
+            alpha_0_data = param.get("alpha_0", None)
+            if alpha_0_data is None:
+                alpha_0_data = d4ref.alpha_0.to(device=model.device, dtype=model.dtype)
+            
+            # Get base polarizabilities for each atom
+            alpha_base = alpha_0_data[model.numbers]
+            
+            # Add dynamic correction
+            aiw = alpha_base + dynamic_alpha_delta_w
+        else:
+            # Standard reference-based mode
+            weights = model.weight_references(
+                cn, q if self.charge_dependent else None
+            )
+            aiw = model.get_weighted_pols(weights, param)
 
         # C9_ABC = integral (aiw_A * aiw_B * aiw_C)
         aiwi = aiw.unsqueeze(-2).unsqueeze(-2)
@@ -307,12 +343,24 @@ class C9ApproxMixin:
     charge_dependent: bool
     """Whether the C9 coefficients depend on atomic charges."""
 
-    def get_c9(self, model: ModelInst, cn: Tensor, q: Tensor | None, param: Param) -> Tensor:
+    def get_c9(
+        self, 
+        model: ModelInst, 
+        cn: Tensor, 
+        q: Tensor | None, 
+        param: Param,
+        alpha_mode: str = "reference"
+    ) -> Tensor:
 
-        weights = model.weight_references(
-            cn, q if self.charge_dependent else None
-        )
-        c6 = model.get_atomic_c6(weights, param)
+        if alpha_mode == "noref":
+            # For noref mode, bypass weight calculation
+            c6 = model.get_atomic_c6(gw=None, param=param, alpha_mode="noref")
+        else:
+            # Standard reference-based mode
+            weights = model.weight_references(
+                cn, q if self.charge_dependent else None
+            )
+            c6 = model.get_atomic_c6(weights, param, alpha_mode="reference")
 
         # C9_ABC = sqrt(|C6_AB * C6_AC * C6_BC|)
         return storch.sqrt(

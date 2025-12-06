@@ -265,49 +265,93 @@ class D4Model(BaseModel):
 
         return tuple(outputs)  # type: ignore
 
-    def get_atomic_c6(self, gw: Tensor, param: Param) -> Tensor:
+    def get_atomic_c6(
+        self, 
+        gw: Tensor | None = None, 
+        param: Param | None = None, 
+        alpha_mode: str = "reference"
+    ) -> Tensor:
         """
         Calculate atomic C6 dispersion coefficients.
 
-        This method computes C6 by:
+        This method supports two modes:
+        
+        **Reference mode (default, alpha_mode="reference")**:
         1. Getting weighted polarizabilities for each atom (with optional corrections)
         2. Performing Casimir-Polder integration over imaginary frequencies
         3. Adding optional per-pair C6 corrections
+        
+        **No-reference mode (alpha_mode="noref")**:
+        1. Bypasses reference systems, CN, and charges
+        2. Uses base polarizabilities (alpha_0) indexed by atomic number
+        3. Adds frequency-dependent corrections (dynamic_alpha_delta_w)
+        4. Performs Casimir-Polder integration
 
         Parameters
         ----------
-        gw : Tensor
+        gw : Tensor | None, optional
             Weights for the atomic reference systems of shape
-            `(..., nat, nref)`.
-        param : Param
+            `(..., nat, nref)`. Required when ``alpha_mode="reference"``.
+        param : Param | None, optional
             Damping parameters. Can contain:
-            - ``dynamic_alpha_delta``: Per-atom polarizability corrections
-            - ``c6_delta``: Per-pair C6 corrections
+            - For reference mode: ``dynamic_alpha_delta``, ``c6_delta``
+            - For noref mode: ``dynamic_alpha_delta_w``, ``alpha_0``, ``c6_delta``
+        alpha_mode : str, optional
+            Mode for C6 calculation. Either ``"reference"`` (default) or ``"noref"``.
 
         Returns
         -------
         Tensor
             C6 coefficients for all atom pairs of shape `(..., nat, nat)`.
+
+        Raises
+        ------
+        ValueError
+            If ``alpha_mode`` is invalid or required parameters are missing.
         """
-        # Get weighted polarizabilities (with optional alpha corrections)
-        weighted_alpha = self.get_weighted_pols(gw, param)
-        
-        # Perform Casimir-Polder integration to get C6 from weighted alphas
-        c6 = trapzd_noref(weighted_alpha)
-        
-        # Add optional per-pair C6 corrections
-        c6_delta = param.get("c6_delta", None)
-        if c6_delta is not None:
-            if isinstance(c6_delta, (int, float)):
-                c6 = c6 + c6_delta
-            else:
-                assert c6.shape == c6_delta.shape, (
-                    f"c6 and c6_delta must have the same shape, "
-                    f"but got {c6.shape} and {c6_delta.shape}"
+        if alpha_mode == "noref":
+            # No-reference mode: bypass reference systems
+            if param is None:
+                raise ValueError(
+                    "param is required for alpha_mode='noref' to provide "
+                    "dynamic_alpha_delta_w"
                 )
-                c6 = c6 + c6_delta
+            return self.get_dynamic_c6_noref(param)
         
-        return c6
+        elif alpha_mode == "reference":
+            # Standard reference-based mode
+            if gw is None:
+                raise ValueError(
+                    "gw (Gaussian weights) is required for alpha_mode='reference'"
+                )
+            if param is None:
+                raise ValueError("param is required for C6 calculation")
+            
+            # Get weighted polarizabilities (with optional alpha corrections)
+            weighted_alpha = self.get_weighted_pols(gw, param)
+            
+            # Perform Casimir-Polder integration to get C6 from weighted alphas
+            c6 = trapzd_noref(weighted_alpha)
+            
+            # Add optional per-pair C6 corrections
+            c6_delta = param.get("c6_delta", None)
+            if c6_delta is not None:
+                if isinstance(c6_delta, (int, float)):
+                    c6 = c6 + c6_delta
+                else:
+                    assert c6.shape == c6_delta.shape, (
+                        f"c6 and c6_delta must have the same shape, "
+                        f"but got {c6.shape} and {c6_delta.shape}"
+                    )
+                    c6 = c6 + c6_delta
+            
+            return c6
+        
+        else:
+            raise ValueError(
+                f"Invalid alpha_mode='{alpha_mode}'. "
+                f"Must be either 'reference' or 'noref'."
+            )
 
     def get_weighted_pols(self, gw: Tensor, param: Param | None = None) -> Tensor:
         """
@@ -347,3 +391,89 @@ class D4Model(BaseModel):
                     weighted_alpha = weighted_alpha + alpha_delta
         
         return weighted_alpha
+
+    def get_dynamic_c6_noref(self, param: Param) -> Tensor:
+        """
+        Calculate C6 coefficients using a reference-system-free approach.
+        
+        This method bypasses:
+        - Reference systems
+        - Coordination number calculation
+        - Charge calculation (EEQ)
+        
+        Instead, it uses base polarizabilities (alpha_0) indexed by atomic number,
+        adds frequency-dependent corrections (dynamic_alpha_delta_w), and performs
+        Casimir-Polder integration.
+
+        Parameters
+        ----------
+        param : Param
+            Parameters containing:
+            - ``dynamic_alpha_delta_w``: Per-atom, per-frequency polarizability 
+              corrections with shape ``(..., natom, 23)``. **Required**.
+            - ``alpha_0``: Base polarizabilities per element with shape ``(max_Z, 23)``.
+              Optional, defaults to zeros from reference data.
+
+        Returns
+        -------
+        Tensor
+            C6 coefficients for all atom pairs of shape ``(..., nat, nat)``.
+
+        Raises
+        ------
+        ValueError
+            If ``dynamic_alpha_delta_w`` is not provided or has incorrect shape.
+        """
+        # Get dynamic_alpha_delta_w (required)
+        dynamic_alpha_delta_w = param.get("dynamic_alpha_delta_w", None)
+        if dynamic_alpha_delta_w is None:
+            raise ValueError(
+                "dynamic_alpha_delta_w is required for alpha_mode='noref' "
+                "but was not provided in param dict."
+            )
+        
+        # Validate shape of dynamic_alpha_delta_w
+        # Expected: (..., natom, 23) where ... are batch dimensions
+        if dynamic_alpha_delta_w.shape[-1] != 23:
+            raise ValueError(
+                f"dynamic_alpha_delta_w must have 23 frequency points in the last "
+                f"dimension, but got shape {dynamic_alpha_delta_w.shape}"
+            )
+        
+        # Check that the number of atoms matches
+        expected_nat = self.numbers.shape[-1]
+        if dynamic_alpha_delta_w.shape[-2] != expected_nat:
+            raise ValueError(
+                f"dynamic_alpha_delta_w has {dynamic_alpha_delta_w.shape[-2]} atoms "
+                f"but model has {expected_nat} atoms"
+            )
+        
+        # Get alpha_0 (base polarizabilities per element)
+        alpha_0_data = param.get("alpha_0", None)
+        if alpha_0_data is None:
+            # Use default zeros from reference data
+            # pylint: disable=import-outside-toplevel
+            from ..reference import d4 as d4ref
+            alpha_0_data = d4ref.alpha_0.to(**self.dd)
+        else:
+            # User-provided alpha_0
+            alpha_0_data = alpha_0_data.to(**self.dd)
+        
+        # Validate alpha_0 shape: should be (max_Z, 23)
+        if alpha_0_data.dim() != 2 or alpha_0_data.shape[-1] != 23:
+            raise ValueError(
+                f"alpha_0 must have shape (max_Z, 23), but got {alpha_0_data.shape}"
+            )
+        
+        # Index alpha_0 by atomic numbers to get base polarizabilities for each atom
+        # alpha_base: shape (..., natom, 23)
+        alpha_base = alpha_0_data[self.numbers]
+        
+        # Add the dynamic correction
+        # alpha_total = alpha_base + dynamic_alpha_delta_w
+        alpha_total = alpha_base + dynamic_alpha_delta_w
+        
+        # Perform Casimir-Polder integration to get C6
+        c6 = trapzd_noref(alpha_total)
+        
+        return c6

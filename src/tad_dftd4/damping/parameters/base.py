@@ -90,6 +90,12 @@ class Param(TypedDict, total=False):
     c6_delta: NotRequired[Tensor | float]
     """C6 delta for all atoms."""
     
+    dynamic_alpha_delta_w: NotRequired[Tensor]
+    """Dynamic alpha delta at all frequencies for all atoms (shape: (..., natom, 23))."""
+    
+    alpha_0: NotRequired[Tensor]
+    """Base polarizabilities per element at all frequencies (shape: (max_Z, 23))."""
+    
 
 class DispersionMethod(str, Enum):
     d3 = "d3"

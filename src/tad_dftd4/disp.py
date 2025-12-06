@@ -54,6 +54,7 @@ def dftd4(
     cn_function: CNFunction = cn_d4,
     counting_function: CountingFunction = erf_count,
     damping_function: Damping = RationalDamping(),
+    alpha_mode: str = "reference",
 ) -> Tensor:
     """
     Evaluate DFT-D4 dispersion energy for a (batch of) molecule(s).
@@ -98,6 +99,10 @@ def dftd4(
         Damping function to evaluate distance dependent contributions. Defaults
         to the Becke-Johnson rational damping function
         :class:`tad_dftd4.damping.functions.RationalDamping`.
+    alpha_mode : str, optional
+        Mode for C6 calculation. Either ``"reference"`` (default, uses reference
+        systems) or ``"noref"`` (bypasses reference systems and uses
+        ``dynamic_alpha_delta_w`` from ``param``).
 
     Returns
     -------
@@ -141,6 +146,7 @@ def dftd4(
         rcov=rcov,
         r4r2=r4r2,
         rvdw=rvdw,
+        alpha_mode=alpha_mode,
     )
 
 

@@ -292,6 +292,7 @@ class Disp(TensorLike):
         rcov: Tensor | None = None,
         r4r2: Tensor | None = None,
         rvdw: Tensor | None = None,
+        alpha_mode: str = "reference",
     ):
         """
         Evaluate DFT-D4 dispersion energy for a (batch of) molecule(s).
@@ -330,6 +331,8 @@ class Disp(TensorLike):
             Damping function to evaluate distance dependent contributions.
             Defaults to the Becke-Johnson rational damping function
             :func:`tad_dftd4.damping.rational.rational_damping`.
+        alpha_mode : str, optional
+            Mode for C6 calculation. Either ``"reference"`` (default) or ``"noref"``.
 
         Returns
         -------
@@ -425,6 +428,7 @@ class Disp(TensorLike):
                 r4r2=r4r2,
                 rvdw=rvdw,
                 cutoff=cutoff,
+                alpha_mode=alpha_mode,
             )
 
         return energy
