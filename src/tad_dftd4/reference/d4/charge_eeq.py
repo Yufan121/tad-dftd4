@@ -19,13 +19,21 @@ Parameters: EEQ
 ===============
 
 Reference EEQ charges.
+
+
+
+clsq: atom charge in molecule for ref system by eeq
+clsh: ? atom charge for the other element in the molecule 
+
 """
 import torch
 
 __all__ = ["clsq", "clsh"]
 
 
-clsq = torch.tensor(
+
+
+clsq = torch.tensor( 
     [
         [
             +0.00000000000000,
