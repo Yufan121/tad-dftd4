@@ -2,7 +2,8 @@
 # if use no-ref mode, program uses alphe_base
 # if not, then not using that 
 
-
+# dynamic_alpha_delta is legacy  (natom)
+# dynamic_alpha_delta_w is new (natom, 23)
 
 # SPDX-Identifier: CC0-1.0
 import tad_mctc as mctc
@@ -39,7 +40,7 @@ charge = torch.tensor(0.0)
 c6_delta = positions.new_zeros((positions.shape[0], positions.shape[0]))
 # c6_delta[0, 1] = 0.001
 dynamic_alpha_delta = positions.new_zeros((positions.shape[0]))
-dynamic_alpha_delta[0] = 0.1
+# dynamic_alpha_delta[0] = 0.1
 
 param = d4.damping.Param(
     s6=positions.new_tensor(1.0),
@@ -62,31 +63,31 @@ energy2 = disp.calculate(numbers, positions, charge, param)
 
 torch.set_printoptions(precision=10)
 
-# ref = torch.tensor(
-#     [
-#         -0.0020841344,
-#         -0.0018971195,
-#         -0.0018107513,
-#         -0.0018305695,
-#         -0.0021737693,
-#         -0.0019484236,
-#         -0.0022788253,
-#         -0.0004080658,
-#         -0.0004261866,
-#         -0.0004199839,
-#         -0.0004280768,
-#         -0.0005108935,
-#     ]
-# )
+ref = torch.tensor(
+    [
+        -0.0020841344,
+        -0.0018971195,
+        -0.0018107513,
+        -0.0018305695,
+        -0.0021737693,
+        -0.0019484236,
+        -0.0022788253,
+        -0.0004080658,
+        -0.0004261866,
+        -0.0004199839,
+        -0.0004280768,
+        -0.0005108935,
+    ]
+)
 
-# if not torch.allclose(energy1, ref, atol=1e-8):
-#     print("Energy does not match for energy1!")
-#     print("energy1:", energy1)
-#     print("ref:", ref)
-# if not torch.allclose(energy2, ref, atol=1e-8):
-#     print("Energy does not match for energy2!")
-#     print("energy2:", energy2)
-#     print("ref:", ref)
+if not torch.allclose(energy1, ref, atol=1e-8):
+    print("Energy does not match for energy1!")
+    print("energy1:", energy1)
+    print("ref:", ref)
+if not torch.allclose(energy2, ref, atol=1e-8):
+    print("Energy does not match for energy2!")
+    print("energy2:", energy2)
+    print("ref:", ref)
 
 # compute gradient of energy with respect to positions
 (grad,) = torch.autograd.grad(energy1.sum(), positions)
@@ -101,6 +102,8 @@ print(f"energy2: {energy2}")
 
 
 
+
+######### NOREF COMPUTATION ############
 
 
 
@@ -120,18 +123,33 @@ nfreq = 23
 # For testing: use small uniform corrections at all frequencies
 dynamic_alpha_delta_w = positions.new_ones((natom, nfreq)) * 0.0
 
+
 print(f"\nNumber of atoms: {natom}")
 print(f"Number of frequency points: {nfreq}")
 print(f"dynamic_alpha_delta_w shape: {dynamic_alpha_delta_w.shape}")
 print(f"dynamic_alpha_delta_w values: uniform 0.1 at all frequencies")
 
+
+
+beta = positions.new_zeros((positions.shape[0]))
+delta = positions.new_zeros((positions.shape[0]))
+
+
+s6 = positions.new_tensor(0.0)
+s8 = positions.new_tensor(0.0)
+s9 = positions.new_tensor(0.0)
+a1 = positions.new_tensor(0.0)
+a2 = positions.new_tensor(0.0)
+
 param_noref = d4.damping.Param(
-    s6=positions.new_tensor(1.0),
-    s8=positions.new_tensor(1.85897750),
-    s9=positions.new_tensor(1.0),
-    a1=positions.new_tensor(0.44286966),
-    a2=positions.new_tensor(4.60230534),
+    s6=positions.new_tensor(1.0) + s6,
+    s8=positions.new_tensor(1.85897750) + s8,
+    s9=positions.new_tensor(1.0) + s9,
+    a1=positions.new_tensor(0.44286966) + a1,
+    a2=positions.new_tensor(4.60230534) + a2,
     dynamic_alpha_delta_w=dynamic_alpha_delta_w,
+    beta=beta,
+    delta=delta,
 )
 
 # Calculate energy with noref mode

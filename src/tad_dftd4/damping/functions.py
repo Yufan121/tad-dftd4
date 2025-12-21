@@ -135,6 +135,8 @@ class Damping(ABC):
         dynamic_alpha_delta: Tensor | None = None,
         dynamic_alpha_delta_w: Tensor | None = None,
         alpha_0: Tensor | None = None,
+        beta: Tensor | None = None,
+        delta: Tensor | None = None,
     ) -> Tensor:
         self.doi = doi
 

@@ -84,10 +84,10 @@ class Param(TypedDict, total=False):
     """DOI of the reference paper."""
 
     # new added
-    dynamic_alpha_delta: NotRequired[Tensor | float]
+    dynamic_alpha_delta: NotRequired[Tensor]
     """Dynamic alpha delta for all atoms."""
     
-    c6_delta: NotRequired[Tensor | float]
+    c6_delta: NotRequired[Tensor]
     """C6 delta for all atoms."""
     
     dynamic_alpha_delta_w: NotRequired[Tensor]
@@ -95,6 +95,12 @@ class Param(TypedDict, total=False):
     
     alpha_0: NotRequired[Tensor]
     """Base polarizabilities per element at all frequencies (shape: (max_Z, 23))."""
+    
+    beta: NotRequired[Tensor]
+    """Beta parameter for charge scaling."""
+    
+    delta: NotRequired[Tensor]
+    """Delta parameter for charge scaling."""
     
 
 class DispersionMethod(str, Enum):

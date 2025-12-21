@@ -305,6 +305,9 @@ class C9ExactMixin:
         from ..utils import trapzd_atm
         from ..reference import d4 as d4ref
 
+
+        print(f'C9ExactMixin, Wrong, not implemented with dynamic_alpha_delta_w')
+
         if alpha_mode == "noref":
             # For noref mode, use dynamic_alpha_delta_w directly
             dynamic_alpha_delta_w = param.get("dynamic_alpha_delta_w", None)
@@ -354,13 +357,13 @@ class C9ApproxMixin:
 
         if alpha_mode == "noref":
             # For noref mode, bypass weight calculation
-            c6 = model.get_atomic_c6(gw=None, param=param, alpha_mode="noref")
+            c6 = model.get_atomic_c6(gw=None, param=param, q=q, alpha_mode="noref")
         else:
             # Standard reference-based mode
             weights = model.weight_references(
                 cn, q if self.charge_dependent else None
             )
-            c6 = model.get_atomic_c6(weights, param, alpha_mode="reference")
+            c6 = model.get_atomic_c6(weights, param, q=q, alpha_mode="reference")
 
         # C9_ABC = sqrt(|C6_AB * C6_AC * C6_BC|)
         return storch.sqrt(

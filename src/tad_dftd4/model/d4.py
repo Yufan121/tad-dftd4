@@ -56,6 +56,8 @@ class D4Model(BaseModel):
     The D4 dispersion model.
     """
 
+    c6_cache = None
+
     def _get_wf(self) -> Tensor:
         """Default weighting factor."""
         return torch.tensor(WF_DEFAULT, **self.dd)
@@ -269,6 +271,7 @@ class D4Model(BaseModel):
         self, 
         gw: Tensor | None = None, 
         param: Param | None = None, 
+        q: Tensor | None = None,
         alpha_mode: str = "reference"
     ) -> Tensor:
         """
@@ -309,6 +312,13 @@ class D4Model(BaseModel):
         ValueError
             If ``alpha_mode`` is invalid or required parameters are missing.
         """
+        
+        
+        if self.c6_cache is not None:
+            print(f"Using cached C6 coefficients")
+            return self.c6_cache
+
+        
         if alpha_mode == "noref":
             # No-reference mode: bypass reference systems
             if param is None:
@@ -316,7 +326,9 @@ class D4Model(BaseModel):
                     "param is required for alpha_mode='noref' to provide "
                     "dynamic_alpha_delta_w"
                 )
-            return self.get_dynamic_c6_noref(param)
+            c6 = self.get_dynamic_c6_noref(param, q=q)
+            self.c6_cache = c6
+            return c6
         
         elif alpha_mode == "reference":
             # Standard reference-based mode
@@ -345,7 +357,9 @@ class D4Model(BaseModel):
                     )
                     c6 = c6 + c6_delta
             
+            self.c6_cache = c6
             return c6
+        
         
         else:
             raise ValueError(
@@ -392,7 +406,7 @@ class D4Model(BaseModel):
         
         return weighted_alpha
 
-    def get_dynamic_c6_noref(self, param: Param) -> Tensor:
+    def get_dynamic_c6_noref(self, param: Param, q: Tensor | None = None) -> Tensor:
         """
         Calculate C6 coefficients using a reference-system-free approach.
         
@@ -473,7 +487,128 @@ class D4Model(BaseModel):
         # alpha_total = alpha_base + dynamic_alpha_delta_w
         alpha_total = alpha_base + dynamic_alpha_delta_w
         
+        # Apply charge scaling if charges and beta/delta parameters are provided
+        if param.get("beta", None) is not None and param.get("delta", None) is not None:
+            # Get charge scaling factor: shape (..., natom)
+            charge_scale = self.charge_scaling_noref(q, param)
+            
+            # Broadcast multiply with alpha_total
+            # charge_scale: shape (..., natom) -> unsqueeze to (..., natom, 1)
+            # alpha_total: shape (..., natom, 23)
+            # Result: shape (..., natom, 23)
+            alpha_total = alpha_total * charge_scale.unsqueeze(-1)
+        
         # Perform Casimir-Polder integration to get C6
         c6 = trapzd_noref(alpha_total)
         
         return c6
+
+
+
+    def charge_scaling_noref(self, q: Tensor | None, param: Param) -> Tensor:
+        """
+        Charge scaling function for no-reference mode.
+        
+        Applies the scaling function:
+        
+        .. math::
+            \\frac{e^{\\beta + x \\delta}}{e^{x \\delta} + e^x(-1 + e^\\beta)}
+        
+        where :math:`x` is the charge, and :math:`\\beta` and :math:`\\delta` 
+        are per-atom parameters.
+        
+        Parameters
+        ----------
+        q : Tensor | None
+            Partial charges for each atom with shape ``(..., natom)``.
+            If ``None``, raises an error.
+        param : Param
+            Parameters containing:
+            - ``beta``: Per-atom parameter with shape ``(..., natom)`` or ``(max_Z,)`` 
+              to be indexed by atomic numbers. **Required**.
+            - ``delta``: Per-atom parameter with shape ``(..., natom)`` or ``(max_Z,)`` 
+              to be indexed by atomic numbers. **Required**.
+        
+        Returns
+        -------
+        Tensor
+            Charge scaling factor with shape ``(..., natom)``.
+        
+        Raises
+        ------
+        ValueError
+            If ``q`` is None, or if ``beta`` or ``delta`` are missing or have 
+            incorrect shapes.
+        """
+        # Validate q is provided
+        if q is None:
+            raise ValueError(
+                "Charge q is required for charge_scaling_noref but was not provided."
+            )
+        else:
+            # print(f'q from D4 model is: {q}')
+            pass
+        
+        # Validate q shape: should be (..., natom)
+        expected_nat = self.numbers.shape[-1]
+        if q.shape[-1] != expected_nat:
+            raise ValueError(
+                f"q has {q.shape[-1]} atoms but model has {expected_nat} atoms. "
+                f"Expected shape (..., {expected_nat}), got {q.shape}"
+            )
+        
+        # Get beta parameter
+        beta_param = param.get("beta", None)
+        if beta_param is None:
+            raise ValueError(
+                "beta is required for charge_scaling_noref but was not provided in param."
+            )
+        
+        # Get delta parameter
+        delta_param = param.get("delta", None)
+        if delta_param is None:
+            raise ValueError(
+                "delta is required for charge_scaling_noref but was not provided in param."
+            )
+        
+        beta = beta_param + 1 # shape: (..., natom)
+        delta = delta_param  + 10 # shape: (..., natom)
+        
+        # Validate beta shape
+        if beta.shape[-1] != expected_nat:
+            raise ValueError(
+                f"beta: {beta}"
+                f"beta has {beta.shape[-1]} atoms but model has {expected_nat} atoms. "
+                f"Expected shape (..., {expected_nat}), got {beta.shape}"
+            )
+        
+        # Validate delta shape
+        if delta.shape[-1] != expected_nat:
+            raise ValueError(
+                f"delta: {delta}"
+                f"delta has {delta.shape[-1]} atoms but model has {expected_nat} atoms. "
+                f"Expected shape (..., {expected_nat}), got {delta.shape}"
+            )
+        
+        # print(f"delta: {delta}")
+        # print(f"beta: {beta}")
+        
+        # x: charge, shape: (..., natom)
+        x = q
+        
+        # Compute scaling function: e^(beta + x * delta) / (e^(x * delta) + e^x * (-1 + e^beta))
+        # Numerator: e^(beta + x * delta)
+        numerator = torch.exp(beta + x * delta)  # shape: (..., natom)
+        
+        # Denominator: e^(x * delta) + e^x * (-1 + e^beta)
+        exp_x_delta = torch.exp(x * delta)  # shape: (..., natom)
+        exp_x = torch.exp(x)  # shape: (..., natom)
+        exp_beta = torch.exp(beta)  # shape: (..., natom)
+        denominator = exp_x_delta + exp_x * (-1.0 + exp_beta)  # shape: (..., natom)
+        
+        # Scaling factor
+        scaling = numerator / denominator  # shape: (..., natom)
+        
+        # print(f"scaling: {scaling}")
+        
+        return scaling

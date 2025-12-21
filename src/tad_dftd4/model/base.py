@@ -299,7 +299,7 @@ class BaseModel(TensorLike):
         """
         # (..., n, r) * (..., n, r) -> (..., n)
         alpha = einsum("...nr,...nr->...n", weights, self._get_alpha()[..., 0])
-        alpha_delta = param.get("dynamic_alpha_delta", torch.zeros(alpha.shape))
+        alpha_delta = param.get("dynamic_alpha_delta", torch.zeros(alpha.shape)) # not used anymore
         print(f"alpha: {alpha}")
         print(f"alpha_delta: {alpha_delta}")
         assert alpha.shape == alpha_delta.shape, f"alpha and alpha_delta must have the same shape, but got {alpha.shape} and {alpha_delta.shape}"
