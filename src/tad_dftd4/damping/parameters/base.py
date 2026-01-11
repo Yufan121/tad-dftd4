@@ -101,7 +101,17 @@ class Param(TypedDict, total=False):
     
     delta: NotRequired[Tensor]
     """Delta parameter for charge scaling."""
+
+    ## base values
     
+    alpha_0_base: NotRequired[Tensor] # shape: (max_Z, 23)
+    """Base polarizabilities per element at all frequencies (shape: (max_Z, 23))."""
+    
+    beta_base: NotRequired[Tensor] # shape: (max_Z, 1)
+    """Beta parameter for charge scaling."""
+    
+    delta_base: NotRequired[Tensor] # shape: (max_Z, 1)
+    """Delta parameter for charge scaling (shape: (max_Z, 1))."""
 
 class DispersionMethod(str, Enum):
     d3 = "d3"

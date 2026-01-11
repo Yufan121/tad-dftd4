@@ -305,16 +305,9 @@ class C9ExactMixin:
         from ..utils import trapzd_atm
         from ..reference import d4 as d4ref
 
-
-        print(f'C9ExactMixin, Wrong, not implemented with dynamic_alpha_delta_w')
-
         if alpha_mode == "noref":
-            # For noref mode, use dynamic_alpha_delta_w directly
+            # For noref mode, use dynamic_alpha_delta_w if provided
             dynamic_alpha_delta_w = param.get("dynamic_alpha_delta_w", None)
-            if dynamic_alpha_delta_w is None:
-                raise ValueError(
-                    "dynamic_alpha_delta_w is required for alpha_mode='noref'"
-                )
             
             # Get alpha_0 (base polarizabilities)
             alpha_0_data = param.get("alpha_0", None)
@@ -324,8 +317,11 @@ class C9ExactMixin:
             # Get base polarizabilities for each atom
             alpha_base = alpha_0_data[model.numbers]
             
-            # Add dynamic correction
-            aiw = alpha_base + dynamic_alpha_delta_w
+            # Add dynamic correction if provided
+            if dynamic_alpha_delta_w is not None:
+                aiw = alpha_base + dynamic_alpha_delta_w
+            else:
+                aiw = alpha_base
         else:
             # Standard reference-based mode
             weights = model.weight_references(

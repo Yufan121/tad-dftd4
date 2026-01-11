@@ -1,3 +1,14 @@
+"""
+除了BJ参数之外，其它参数一律可以是None
+BJ 参数必须提供。否则会报错
+
+"""
+
+
+
+
+
+
 
 # if use no-ref mode, program uses alphe_base
 # if not, then not using that 
@@ -14,6 +25,8 @@ import tad_dftd4 as d4
 numbers = mctc.convert.symbol_to_number(
     symbols="C C C C N C S H H H H H".split()
 )
+print(f'numbers: {numbers}')
+
 
 # coordinates in Bohr
 positions = torch.tensor(
@@ -148,9 +161,11 @@ param_noref = d4.damping.Param(
     a1=positions.new_tensor(0.44286966) + a1,
     a2=positions.new_tensor(4.60230534) + a2,
     dynamic_alpha_delta_w=dynamic_alpha_delta_w,
-    beta=beta,
-    delta=delta,
+    beta=None,
+    delta=None,
 )
+
+print(f"numbers: {numbers}\npositions: {positions}\ncharge: {charge}\nparam_noref: {param_noref}\nalpha_mode: noref")
 
 # Calculate energy with noref mode
 energy_noref = d4.dftd4(numbers, positions, charge, param_noref, alpha_mode="noref")

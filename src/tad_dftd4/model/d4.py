@@ -416,7 +416,7 @@ class D4Model(BaseModel):
         - Charge calculation (EEQ)
         
         Instead, it uses base polarizabilities (alpha_0) indexed by atomic number,
-        adds frequency-dependent corrections (dynamic_alpha_delta_w), and performs
+        optionally adds frequency-dependent corrections (dynamic_alpha_delta_w), and performs
         Casimir-Polder integration.
 
         Parameters
@@ -424,7 +424,8 @@ class D4Model(BaseModel):
         param : Param
             Parameters containing:
             - ``dynamic_alpha_delta_w``: Per-atom, per-frequency polarizability 
-              corrections with shape ``(..., natom, 23)``. **Required**.
+              corrections with shape ``(..., natom, 23)``. **Optional**. If not provided,
+              only base polarizabilities are used.
             - ``alpha_0``: Base polarizabilities per element with shape ``(max_Z, 23)``.
               Optional, defaults to zeros from reference data.
 
@@ -436,31 +437,27 @@ class D4Model(BaseModel):
         Raises
         ------
         ValueError
-            If ``dynamic_alpha_delta_w`` is not provided or has incorrect shape.
+            If ``dynamic_alpha_delta_w`` has incorrect shape when provided.
         """
-        # Get dynamic_alpha_delta_w (required)
+        # Get dynamic_alpha_delta_w (optional)
         dynamic_alpha_delta_w = param.get("dynamic_alpha_delta_w", None)
-        if dynamic_alpha_delta_w is None:
-            raise ValueError(
-                "dynamic_alpha_delta_w is required for alpha_mode='noref' "
-                "but was not provided in param dict."
-            )
         
-        # Validate shape of dynamic_alpha_delta_w
-        # Expected: (..., natom, 23) where ... are batch dimensions
-        if dynamic_alpha_delta_w.shape[-1] != 23:
-            raise ValueError(
-                f"dynamic_alpha_delta_w must have 23 frequency points in the last "
-                f"dimension, but got shape {dynamic_alpha_delta_w.shape}"
-            )
-        
-        # Check that the number of atoms matches
-        expected_nat = self.numbers.shape[-1]
-        if dynamic_alpha_delta_w.shape[-2] != expected_nat:
-            raise ValueError(
-                f"dynamic_alpha_delta_w has {dynamic_alpha_delta_w.shape[-2]} atoms "
-                f"but model has {expected_nat} atoms"
-            )
+        # Validate shape of dynamic_alpha_delta_w if provided
+        if dynamic_alpha_delta_w is not None:
+            # Expected: (..., natom, 23) where ... are batch dimensions
+            if dynamic_alpha_delta_w.shape[-1] != 23:
+                raise ValueError(
+                    f"dynamic_alpha_delta_w must have 23 frequency points in the last "
+                    f"dimension, but got shape {dynamic_alpha_delta_w.shape}"
+                )
+            
+            # Check that the number of atoms matches
+            expected_nat = self.numbers.shape[-1]
+            if dynamic_alpha_delta_w.shape[-2] != expected_nat:
+                raise ValueError(
+                    f"dynamic_alpha_delta_w has {dynamic_alpha_delta_w.shape[-2]} atoms "
+                    f"but model has {expected_nat} atoms"
+                )
         
         # Get alpha_0 (base polarizabilities per element)
         alpha_0_data = param.get("alpha_0", None)
@@ -472,6 +469,8 @@ class D4Model(BaseModel):
         else:
             # User-provided alpha_0
             alpha_0_data = alpha_0_data.to(**self.dd)
+
+        
         
         # Validate alpha_0 shape: should be (max_Z, 23)
         if alpha_0_data.dim() != 2 or alpha_0_data.shape[-1] != 23:
@@ -483,20 +482,21 @@ class D4Model(BaseModel):
         # alpha_base: shape (..., natom, 23)
         alpha_base = alpha_0_data[self.numbers]
         
-        # Add the dynamic correction
-        # alpha_total = alpha_base + dynamic_alpha_delta_w
-        alpha_total = alpha_base + dynamic_alpha_delta_w
+        # Add the dynamic correction if provided
+        if dynamic_alpha_delta_w is not None:
+            alpha_total = alpha_base + dynamic_alpha_delta_w
+        else:
+            alpha_total = alpha_base
         
-        # Apply charge scaling if charges and beta/delta parameters are provided
-        if param.get("beta", None) is not None and param.get("delta", None) is not None:
-            # Get charge scaling factor: shape (..., natom)
-            charge_scale = self.charge_scaling_noref(q, param)
-            
-            # Broadcast multiply with alpha_total
-            # charge_scale: shape (..., natom) -> unsqueeze to (..., natom, 1)
-            # alpha_total: shape (..., natom, 23)
-            # Result: shape (..., natom, 23)
-            alpha_total = alpha_total * charge_scale.unsqueeze(-1)
+        # Apply charge scaling (use base values if not provided)
+        # Get charge scaling factor: shape (..., natom)
+        charge_scale = self.charge_scaling_noref(q, param)
+        
+        # Broadcast multiply with alpha_total
+        # charge_scale: shape (..., natom) -> unsqueeze to (..., natom, 1)
+        # alpha_total: shape (..., natom, 23)
+        # Result: shape (..., natom, 23)
+        alpha_total = alpha_total * charge_scale.unsqueeze(-1)
         
         # Perform Casimir-Polder integration to get C6
         c6 = trapzd_noref(alpha_total)
@@ -507,7 +507,7 @@ class D4Model(BaseModel):
 
     def charge_scaling_noref(self, q: Tensor | None, param: Param) -> Tensor:
         """
-        Charge scaling function for no-reference mode.
+        Yufan: charge scaling function for no-reference mode.
         
         Applies the scaling function:
         
@@ -517,6 +517,11 @@ class D4Model(BaseModel):
         where :math:`x` is the charge, and :math:`\\beta` and :math:`\\delta` 
         are per-atom parameters.
         
+        If ``beta`` or ``delta`` are not provided, uses base values of 1.0 for beta
+        and 10.0 for delta (no shift added).
+        TODO: decide/add base values for beta and delta (probably in param.py)
+        
+        
         Parameters
         ----------
         q : Tensor | None
@@ -525,9 +530,11 @@ class D4Model(BaseModel):
         param : Param
             Parameters containing:
             - ``beta``: Per-atom parameter with shape ``(..., natom)`` or ``(max_Z,)`` 
-              to be indexed by atomic numbers. **Required**.
+              to be indexed by atomic numbers. **Optional**. If not provided, uses base
+              value of 1.0.
             - ``delta``: Per-atom parameter with shape ``(..., natom)`` or ``(max_Z,)`` 
-              to be indexed by atomic numbers. **Required**.
+              to be indexed by atomic numbers. **Optional**. If not provided, uses base
+              value of 10.0.
         
         Returns
         -------
@@ -537,8 +544,7 @@ class D4Model(BaseModel):
         Raises
         ------
         ValueError
-            If ``q`` is None, or if ``beta`` or ``delta`` are missing or have 
-            incorrect shapes.
+            If ``q`` is None, or if ``beta`` or ``delta`` have incorrect shapes when provided.
         """
         # Validate q is provided
         if q is None:
@@ -557,22 +563,22 @@ class D4Model(BaseModel):
                 f"Expected shape (..., {expected_nat}), got {q.shape}"
             )
         
-        # Get beta parameter
+        # Get beta and delta parameters (optional)
         beta_param = param.get("beta", None)
-        if beta_param is None:
-            raise ValueError(
-                "beta is required for charge_scaling_noref but was not provided in param."
-            )
-        
-        # Get delta parameter
         delta_param = param.get("delta", None)
-        if delta_param is None:
-            raise ValueError(
-                "delta is required for charge_scaling_noref but was not provided in param."
-            )
         
-        beta = beta_param + 1 # shape: (..., natom)
-        delta = delta_param  + 10 # shape: (..., natom)
+        # Use base values if None, otherwise add shifts
+        if beta_param is None:
+            # Use base value of 1.0 (no shift added)
+            beta = torch.ones_like(q) * 1.0
+        else:
+            beta = beta_param + 1  # shape: (..., natom)
+        
+        if delta_param is None:
+            # Use base value of 10.0 (no shift added)
+            delta = torch.ones_like(q) * 10.0
+        else:
+            delta = delta_param + 10  # shape: (..., natom)
         
         # Validate beta shape
         if beta.shape[-1] != expected_nat:
@@ -590,8 +596,8 @@ class D4Model(BaseModel):
                 f"Expected shape (..., {expected_nat}), got {delta.shape}"
             )
         
-        # print(f"delta: {delta}")
-        # print(f"beta: {beta}")
+        print(f"delta: {delta}")
+        print(f"beta: {beta}")
         
         # x: charge, shape: (..., natom)
         x = q
@@ -609,6 +615,6 @@ class D4Model(BaseModel):
         # Scaling factor
         scaling = numerator / denominator  # shape: (..., natom)
         
-        # print(f"scaling: {scaling}")
+        print(f"scaling: {scaling}")
         
         return scaling
