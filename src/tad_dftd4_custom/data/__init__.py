@@ -15,11 +15,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Data: Radii
+Atomic data
 ===========
 
-Covalent radii (imported from *tad-mctc*).
-"""
-from tad_mctc.data import COV_D3, VDW_PAIRWISE
+Atomic data required within `tad_dftd4_custom`:
+ - chemical hardness
+ - Pauling electronegativities
+ - expectation values
+ - covalent radii
+ - effective nuclear charge
 
-__all__ = ["COV_D3", "VDW_PAIRWISE"]
+Some atomic data is imported from the `tad_mctc` library or indirectly used within the `tad_mctc` library.
+"""
+from .hardness import *
+from .r4r2 import *
+from .radii import *
+from .zeff import *

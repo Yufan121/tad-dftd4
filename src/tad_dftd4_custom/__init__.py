@@ -31,7 +31,7 @@ the calculation of atom-resolved dispersion energies.
 Example
 -------
 >>> import torch
->>> import tad_dftd4 as d4
+>>> import tad_dftd4_custom as d4
 >>> import tad_mctc as mctc
 >>>
 >>> # S22 system 4: formamide dimer

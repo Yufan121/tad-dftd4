@@ -18,7 +18,7 @@
 Defaults
 ========
 
-This module defines the default values for all parameters within `tad_dftd4`.
+This module defines the default values for all parameters within `tad_dftd4_custom`.
 """
 
 # DFT-D4

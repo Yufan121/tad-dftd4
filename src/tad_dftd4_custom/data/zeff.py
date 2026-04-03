@@ -15,12 +15,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Data: Chemical hardnesses
-=========================
+Data: Charges
+=============
 
-Element-specific chemical hardnesses for the charge scaling function used
-to extrapolate the C6 coefficients in DFT-D4.
+Effective charges (imported from *tad-mctc*).
 """
-from tad_mctc.data import GAM
+from tad_mctc.data.zeff import ZEFF as _ZEFF
 
-__all__ = ["GAM"]
+# Wrap tensor as callable for consistent API across tad_mctc versions.
+# In 0.5.3+, ZEFF is a function; in 0.4.3, it's a tensor.
+if callable(_ZEFF):
+    ZEFF = _ZEFF
+else:
+    def ZEFF(device=None, dtype=None):
+        t = _ZEFF
+        if device is not None:
+            t = t.to(device=device)
+        if dtype is not None:
+            t = t.to(dtype=dtype)
+        return t
+
+__all__ = ["ZEFF"]

@@ -26,7 +26,8 @@ from __future__ import annotations
 
 import torch
 from tad_mctc.ncoord import cn_d4, erf_count
-from tad_mctc.typing import DD, CNFunction, CountingFunction, Tensor
+from tad_mctc.typing import DD, Tensor
+from tad_dftd4_custom._compat import CNFunction, CountingFunction
 from tad_multicharge import get_eeq_charges
 
 from .cutoff import Cutoff
@@ -71,7 +72,7 @@ def dftd4(
         DFT-D4 damping parameters.
     model : D4Model | D4SModel | None, optional
         The DFT-D4 dispersion model for the evaluation of the C6 coefficients.
-        Defaults to ``None``, which creates :class:`tad_dftd4.model.d4.D4Model`.
+        Defaults to ``None``, which creates :class:`tad_dftd4_custom.model.d4.D4Model`.
     rcov : Tensor | None, optional
         Covalent radii of the atoms in the system. Defaults to
         ``None``, i.e., default values are used.
@@ -86,7 +87,7 @@ def dftd4(
         calculated using the total ``charge``.
     cutoff : Cutoff | None, optional
         Collection of real-space cutoffs. Defaults to ``None``, i.e.,
-        :class:`tad_dftd4.cutoff.Cutoff` is initialized with its defaults.
+        :class:`tad_dftd4_custom.cutoff.Cutoff` is initialized with its defaults.
     cn_function : CNFunction, optional
         Function to calculate the coordination number. Defaults to
         :func:`tad_mctc.ncoord.d4.cn_d4`, which uses the
@@ -98,7 +99,7 @@ def dftd4(
     damping_function : DampingFunction, optional
         Damping function to evaluate distance dependent contributions. Defaults
         to the Becke-Johnson rational damping function
-        :class:`tad_dftd4.damping.functions.RationalDamping`.
+        :class:`tad_dftd4_custom.damping.functions.RationalDamping`.
     alpha_mode : str, optional
         Mode for C6 calculation. Either ``"reference"`` (default, uses reference
         systems) or ``"noref"`` (bypasses reference systems and uses

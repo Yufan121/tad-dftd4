@@ -28,7 +28,7 @@ all atoms of the molecule(s) and stored in the model class.
 Example
 -------
 >>> import torch
->>> import tad_dftd4 as d4
+>>> import tad_dftd4_custom as d4
 >>>
 >>> numbers = torch.tensor([14, 1, 1, 1, 1]) # SiH4
 >>> model = d4.D4Model(numbers)

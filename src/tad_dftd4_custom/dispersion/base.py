@@ -26,7 +26,8 @@ from abc import ABC, abstractmethod
 from typing import ClassVar
 
 import torch
-from tad_mctc.typing import DD, Any, CNFunction, Tensor, TensorLike
+from tad_mctc.typing import DD, Any, Tensor, TensorLike
+from tad_dftd4_custom._compat import CNFunction
 
 from ..cutoff import Cutoff
 from ..damping import Damping, Param
@@ -235,19 +236,19 @@ class Disp(TensorLike):
 
         if self._model_key.casefold() == "d3":
             # pylint: disable=import-outside-toplevel
-            from tad_dftd4.model.d3 import D3Model
+            from tad_dftd4_custom.model.d3 import D3Model
 
             return D3Model(numbers=numbers, **self._model_kwargs, **self.dd)
 
         if self._model_key.casefold() == "d4":
             # pylint: disable=import-outside-toplevel
-            from tad_dftd4.model.d4 import D4Model
+            from tad_dftd4_custom.model.d4 import D4Model
 
             return D4Model(numbers=numbers, **self._model_kwargs, **self.dd)
 
         if self._model_key.casefold() == "d4s":
             # pylint: disable=import-outside-toplevel
-            from tad_dftd4.model.d4s import D4SModel
+            from tad_dftd4_custom.model.d4s import D4SModel
 
             return D4SModel(numbers=numbers, **self._model_kwargs, **self.dd)
 
@@ -260,19 +261,19 @@ class Disp(TensorLike):
 
     def get_rcov(self, numbers: Tensor) -> Tensor:
         # pylint: disable=import-outside-toplevel
-        from tad_mctc.data import COV_D3
+        from tad_dftd4_custom.data import COV_D3
 
         return COV_D3(**self.dd)[numbers]
 
     def get_r4r2(self, numbers: Tensor) -> Tensor:
         # pylint: disable=import-outside-toplevel
-        from tad_dftd4.data import R4R2
+        from tad_dftd4_custom.data import R4R2
 
         return R4R2(**self.dd)[numbers]
 
     def get_rvdw(self, numbers: Tensor) -> Tensor:
         # pylint: disable=import-outside-toplevel
-        from tad_mctc.data import VDW_PAIRWISE
+        from tad_dftd4_custom.data import VDW_PAIRWISE
 
         return VDW_PAIRWISE(**self.dd)[
             numbers.unsqueeze(-1), numbers.unsqueeze(-2)
@@ -310,7 +311,7 @@ class Disp(TensorLike):
         model : D4Model | D4SModel | None, optional
             The DFT-D4 dispersion model for the evaluation of the C6
             coefficients. Defaults to ``None``, which creates
-            :class:`tad_dftd4.model.d4.D4Model`.
+            :class:`tad_dftd4_custom.model.d4.D4Model`.
         rcov : Tensor | None, optional
             Covalent radii of the atoms in the system. Defaults to
             ``None``, i.e., default values are used.
@@ -322,7 +323,7 @@ class Disp(TensorLike):
             calculated using the total ``charge``.
         cutoff : Cutoff | None, optional
             Collection of real-space cutoffs. Defaults to ``None``, i.e.,
-            :class:`tad_dftd4.cutoff.Cutoff` is initialized with its defaults.
+            :class:`tad_dftd4_custom.cutoff.Cutoff` is initialized with its defaults.
         counting_function : CountingFunction, optional
             Counting function used for the DFT-D4 coordination number. Defaults
             to the error function counting function
@@ -330,7 +331,7 @@ class Disp(TensorLike):
         damping_function : DampingFunction, optional
             Damping function to evaluate distance dependent contributions.
             Defaults to the Becke-Johnson rational damping function
-            :func:`tad_dftd4.damping.rational.rational_damping`.
+            :func:`tad_dftd4_custom.damping.rational.rational_damping`.
         alpha_mode : str, optional
             Mode for C6 calculation. Either ``"reference"`` (default) or ``"noref"``.
 
