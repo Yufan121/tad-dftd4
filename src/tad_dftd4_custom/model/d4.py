@@ -507,114 +507,99 @@ class D4Model(BaseModel):
 
     def charge_scaling_noref(self, q: Tensor | None, param: Param) -> Tensor:
         """
-        Yufan: charge scaling function for no-reference mode.
-        
+        Charge scaling function for no-reference mode (v2, 2026-05-13).
+
         Applies the scaling function:
-        
+
         .. math::
-            \\frac{e^{\\beta + x \\delta}}{e^{x \\delta} + e^x(-1 + e^\\beta)}
-        
-        where :math:`x` is the charge, and :math:`\\beta` and :math:`\\delta` 
-        are per-atom parameters.
-        
-        If ``beta`` or ``delta`` are not provided, uses base values of 1.0 for beta
-        and 10.0 for delta (no shift added).
-        TODO: decide/add base values for beta and delta (probably in param.py)
-        
-        
+            \\zeta(r;\\beta,p) = \\frac{e^{\\beta}\\, r^{p}}{r^{p} + e^{\\beta} - 1}
+
+        with
+
+        .. math::
+            r = \\frac{z_{\\mathrm{ref},A}}{z_A},\\quad
+            z_A = Z_A + q_A,\\quad
+            z_{\\mathrm{ref},A} = Z_A
+
+        where :math:`Z_A` is the effective nuclear charge from the def2-ECP
+        table (``tad_mctc.data.zeff.ZEFF``, identical to the table used by D4
+        reference mode), and :math:`q_A` is the atomic partial charge (EEQ).
+        The neutral isolated-atom reference has :math:`q_{\\mathrm{ref}}=0`,
+        so :math:`z_{\\mathrm{ref},A}=Z_A`.
+
+        Properties:
+            * :math:`q=0 \\Rightarrow r=1 \\Rightarrow \\zeta=1`.
+            * Cations (:math:`q>0`): :math:`r<1`, :math:`\\zeta<1`.
+            * Anions  (:math:`q<0`): :math:`r>1`, saturates at :math:`e^{\\beta}`.
+
+        The ``beta`` and ``delta`` keys in ``param`` are per-atom shifts on the
+        base values ``beta_base = 3.0`` and ``p_base = 3.5``; the ``delta``
+        key controls the exponent :math:`p`, NOT the legacy sigmoid steepness.
+
         Parameters
         ----------
         q : Tensor | None
-            Partial charges for each atom with shape ``(..., natom)``.
+            Partial charges (EEQ) for each atom with shape ``(..., natom)``.
             If ``None``, raises an error.
         param : Param
             Parameters containing:
-            - ``beta``: Per-atom parameter with shape ``(..., natom)`` or ``(max_Z,)`` 
-              to be indexed by atomic numbers. **Optional**. If not provided, uses base
-              value of 1.0.
-            - ``delta``: Per-atom parameter with shape ``(..., natom)`` or ``(max_Z,)`` 
-              to be indexed by atomic numbers. **Optional**. If not provided, uses base
-              value of 10.0.
-        
+            - ``beta``: Per-atom shift on :math:`\\beta` (base = 3.0). Shape
+              ``(..., natom)``. Optional.
+            - ``delta``: Per-atom shift on :math:`p` (base = 3.5). Shape
+              ``(..., natom)``. Optional. (Key name kept for backward compat
+              with NN output heads; semantically this is the exponent ``p``.)
+
         Returns
         -------
         Tensor
             Charge scaling factor with shape ``(..., natom)``.
-        
+
         Raises
         ------
         ValueError
-            If ``q`` is None, or if ``beta`` or ``delta`` have incorrect shapes when provided.
+            If ``q`` is None or has incorrect shape.
         """
-        # Validate q is provided
         if q is None:
             raise ValueError(
                 "Charge q is required for charge_scaling_noref but was not provided."
             )
-        else:
-            # print(f'q from D4 model is: {q}')
-            pass
-        
-        # Validate q shape: should be (..., natom)
+
         expected_nat = self.numbers.shape[-1]
         if q.shape[-1] != expected_nat:
             raise ValueError(
                 f"q has {q.shape[-1]} atoms but model has {expected_nat} atoms. "
                 f"Expected shape (..., {expected_nat}), got {q.shape}"
             )
-        
-        # Get beta and delta parameters (optional)
+
+        # Effective nuclear charge per atom (from def2-ECP table, same as
+        # reference-mode `_zeta`). Shape: (..., natom).
+        zeff = data.ZEFF(self.device).to(**self.dd)[self.numbers]
+
+        # z_A = Z_A + q_A. Clamp to a small positive value to guard against
+        # the rare q_A <= -Z_A case (e.g. H with EEQ q ~ -1), which would
+        # send r -> inf or r^p -> NaN.
+        z_a = (zeff + q).clamp(min=1e-3)
+        r = zeff / z_a                        # shape: (..., natom)
+
+        # NN shifts on (beta, p); defaults give scaling(q=0) = 1.
         beta_param = param.get("beta", None)
         delta_param = param.get("delta", None)
-        
-        # Use base values if None, otherwise add shifts
-        if beta_param is None:
-            # Use base value of 1.0 (no shift added)
-            beta = torch.ones_like(q) * 1.0
-        else:
-            beta = beta_param + 1  # shape: (..., natom)
-        
-        if delta_param is None:
-            # Use base value of 10.0 (no shift added)
-            delta = torch.ones_like(q) * 10.0
-        else:
-            delta = delta_param + 10  # shape: (..., natom)
-        
-        # Validate beta shape
+        beta = (beta_param + 3.0) if beta_param is not None else torch.full_like(q, 3.0)
+        p = (delta_param + 3.5) if delta_param is not None else torch.full_like(q, 3.5)
+
         if beta.shape[-1] != expected_nat:
             raise ValueError(
-                f"beta: {beta}"
-                f"beta has {beta.shape[-1]} atoms but model has {expected_nat} atoms. "
+                f"beta has {beta.shape[-1]} atoms but model has {expected_nat}. "
                 f"Expected shape (..., {expected_nat}), got {beta.shape}"
             )
-        
-        # Validate delta shape
-        if delta.shape[-1] != expected_nat:
+        if p.shape[-1] != expected_nat:
             raise ValueError(
-                f"delta: {delta}"
-                f"delta has {delta.shape[-1]} atoms but model has {expected_nat} atoms. "
-                f"Expected shape (..., {expected_nat}), got {delta.shape}"
+                f"delta (used as exponent p) has {p.shape[-1]} atoms but model has "
+                f"{expected_nat}. Expected shape (..., {expected_nat}), got {p.shape}"
             )
-        
-        print(f"delta: {delta}")
-        print(f"beta: {beta}")
-        
-        # x: charge, shape: (..., natom)
-        x = q
-        
-        # Compute scaling function: e^(beta + x * delta) / (e^(x * delta) + e^x * (-1 + e^beta))
-        # Numerator: e^(beta + x * delta)
-        numerator = torch.exp(beta + x * delta)  # shape: (..., natom)
-        
-        # Denominator: e^(x * delta) + e^x * (-1 + e^beta)
-        exp_x_delta = torch.exp(x * delta)  # shape: (..., natom)
-        exp_x = torch.exp(x)  # shape: (..., natom)
-        exp_beta = torch.exp(beta)  # shape: (..., natom)
-        denominator = exp_x_delta + exp_x * (-1.0 + exp_beta)  # shape: (..., natom)
-        
-        # Scaling factor
-        scaling = numerator / denominator  # shape: (..., natom)
-        
-        print(f"scaling: {scaling}")
-        
+
+        r_pow = r ** p
+        exp_beta = torch.exp(beta)
+        scaling = (exp_beta * r_pow) / (r_pow + exp_beta - 1.0)
+
         return scaling
