@@ -48,6 +48,39 @@ __all__ = [
 ]
 
 
+def _pair_shift(
+    base: Tensor | float | int,
+    delta: Tensor | None,
+) -> Tensor | float | int:
+    """
+    Build a pair-effective scalar/tensor from a scalar base + per-atom delta.
+
+    If ``delta`` is ``None``, return ``base`` unchanged so existing call sites
+    are bit-identical (strict backward compat). Otherwise return a
+    ``(..., nat, nat)`` pair matrix where the per-atom shift is interpreted as
+    a **fractional (multiplicative) correction** to ``base``:
+
+        pair = base * (1 + 0.5 * (delta_i + delta_j))
+
+    With the upstream NN clamp ``|delta| <= 0.5`` this gives a pair value in
+    ``[0.5*base, 1.5*base]``, i.e. a ±50% physics-aware envelope around the
+    DFT-specific baseline. When ``base = 0`` (e.g. ``s10_base`` for every
+    supported DFT) the term vanishes regardless of ``delta`` — matching the
+    physical convention that disabled D4 terms stay disabled.
+
+    Bit-identical to the no-NN path when ``delta = 0`` *and* (importantly) to
+    the v4 additive form only when ``base = 1`` — base-1 parameters (e.g.
+    ``s6_base = 1.0``, ``s9_base = 1.0``) are unchanged by the reframe, all
+    others scale by ``base``. This is the v5 (2026-05-18) semantics for the
+    s/a-series shifts; the charge-scaling ``beta``/``delta`` keeps v3 additive.
+
+    ``delta`` is expected to be per-atom of shape ``(..., nat)``.
+    """
+    if delta is None:
+        return base
+    return base * (1.0 + 0.5 * (delta.unsqueeze(-1) + delta.unsqueeze(-2)))
+
+
 class Damping(ABC):
     """
     Base interface for damping functions.
@@ -137,6 +170,14 @@ class Damping(ABC):
         alpha_0: Tensor | None = None,
         beta: Tensor | None = None,
         delta: Tensor | None = None,
+        # per-atom D4 damping/dispersion shifts (NN-D4 v4); unused here
+        # except a1_delta / a2_delta, which RationalDamping consumes.
+        s6_delta: Tensor | None = None,
+        s8_delta: Tensor | None = None,
+        s10_delta: Tensor | None = None,
+        a1_delta: Tensor | None = None,
+        a2_delta: Tensor | None = None,
+        s9_delta: Tensor | None = None,
     ) -> Tensor:
         self.doi = doi
 
@@ -171,6 +212,8 @@ class Damping(ABC):
             alp=alp,
             bet=bet,
             only_damping=only_damping,
+            a1_delta=a1_delta,
+            a2_delta=a2_delta,
         )
 
     @abstractmethod
@@ -194,6 +237,8 @@ class Damping(ABC):
         only_damping: bool = False,
         c6_delta: Tensor | None = None,
         dynamic_alpha_delta: Tensor | None = None,
+        a1_delta: Tensor | None = None,
+        a2_delta: Tensor | None = None,
     ) -> Tensor:
         """
         Calculate the damping function values.
@@ -286,6 +331,8 @@ class RationalDamping(Damping):
         only_damping: bool = False,
         c6_delta: Tensor | None = None,
         dynamic_alpha_delta: Tensor | None = None,
+        a1_delta: Tensor | None = None,
+        a2_delta: Tensor | None = None,
     ) -> Tensor:
         """
         Rational damped dispersion interaction between pairs.
@@ -310,7 +357,10 @@ class RationalDamping(Damping):
         """
         assert a1 is not None and a2 is not None
 
-        radius = a1 * torch.sqrt(radii) + a2
+        a1_eff = _pair_shift(a1, a1_delta)
+        a2_eff = _pair_shift(a2, a2_delta)
+
+        radius = a1_eff * torch.sqrt(radii) + a2_eff
         return 1.0 / (distances.pow(order) + radius.pow(order))
 
 
@@ -353,6 +403,8 @@ class ZeroDamping(Damping):
         alp: Tensor | float | int | None = defaults.ALP,
         bet: Tensor | float | int | None = None,
         only_damping: bool = False,
+        a1_delta: Tensor | None = None,
+        a2_delta: Tensor | None = None,
     ) -> Tensor:
         assert alp is not None
 
@@ -419,6 +471,8 @@ class MZeroDamping(Damping):
         only_damping: bool = False,
         c6_delta: Tensor | None = None,
         dynamic_alpha_delta: Tensor | None = None,
+        a1_delta: Tensor | None = None,
+        a2_delta: Tensor | None = None,
     ) -> Tensor:
         assert alp is not None
         assert bet is not None
@@ -477,6 +531,8 @@ class OptimisedPowerDamping(Damping):
         only_damping: bool = False,
         c6_delta: Tensor | None = None,
         dynamic_alpha_delta: Tensor | None = None,
+        a1_delta: Tensor | None = None,
+        a2_delta: Tensor | None = None,
     ) -> Tensor:
         assert a1 is not None
         assert a2 is not None
@@ -487,7 +543,9 @@ class OptimisedPowerDamping(Damping):
                 "OP-damping is only implemented for order 6 and 8."
             )
 
-        radius = a1 * torch.sqrt(radii) + a2
+        a1_eff = _pair_shift(a1, a1_delta)
+        a2_eff = _pair_shift(a2, a2_delta)
+        radius = a1_eff * torch.sqrt(radii) + a2_eff
         ab = radius**bet
 
         # r2**(bet * 0.5)

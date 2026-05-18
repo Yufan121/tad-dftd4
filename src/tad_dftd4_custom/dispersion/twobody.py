@@ -30,6 +30,7 @@ from tad_mctc.typing import DD, Tensor
 from .. import defaults
 from ..cutoff import Cutoff
 from ..damping import Damping, Param, RationalDamping
+from ..damping.functions import _pair_shift
 from ..model import ModelInst
 from .base import DispTerm
 
@@ -172,17 +173,34 @@ def dispersion2(
         zero,
     )
 
-    if as_matrix is True:
-        e6 = c6 * t6
-        e8 = c8 * t8
-    else:
-        e6 = torch.sum(c6 * t6, dim=-1)
-        e8 = torch.sum(c8 * t8, dim=-1)
-
     s6 = param.get("s6", torch.tensor(defaults.S6, **dd))
     s8 = param.get("s8", torch.tensor(defaults.S8, **dd))
 
-    edisp = s6 * e6 + s8 * e8
+    # NN-D4 v4: per-atom shifts (pair-averaged) on s6/s8 if provided. Absent =>
+    # strict backward-compatible (scalar) path so existing checkpoints reproduce
+    # bit-for-bit.
+    s6_delta = param.get("s6_delta", None)
+    s8_delta = param.get("s8_delta", None)
+
+    if s6_delta is not None or s8_delta is not None:
+        # Build pair-matrix scalings and scale at pair level.
+        s6_pair = _pair_shift(s6, s6_delta)
+        s8_pair = _pair_shift(s8, s8_delta)
+        e6_mat = s6_pair * c6 * t6
+        e8_mat = s8_pair * c8 * t8
+        if as_matrix is True:
+            edisp = e6_mat + e8_mat
+        else:
+            edisp = torch.sum(e6_mat + e8_mat, dim=-1)
+    else:
+        # Original scalar path (preserves float32 reduction order).
+        if as_matrix is True:
+            e6 = c6 * t6
+            e8 = c8 * t8
+        else:
+            e6 = torch.sum(c6 * t6, dim=-1)
+            e8 = torch.sum(c8 * t8, dim=-1)
+        edisp = s6 * e6 + s8 * e8
 
     # With `if "s10" in param and param["s10"] != 0.0`, the gradcheck tests fail
     # if s10 is exactly 0 (other values are fine).
@@ -194,12 +212,20 @@ def dispersion2(
             zero,
         )
 
-        if as_matrix is True:
-            e10 = c10 * t10
+        s10_delta = param.get("s10_delta", None)
+        if s10_delta is not None:
+            s10_pair = _pair_shift(param["s10"], s10_delta)
+            e10_mat = s10_pair * c10 * t10
+            if as_matrix is True:
+                edisp = edisp + e10_mat
+            else:
+                edisp = edisp + torch.sum(e10_mat, dim=-1)
         else:
-            e10 = torch.sum(c10 * t10, dim=-1)
-
-        edisp += param["s10"] * e10
+            if as_matrix is True:
+                e10 = c10 * t10
+            else:
+                e10 = torch.sum(c10 * t10, dim=-1)
+            edisp = edisp + param["s10"] * e10
 
     if as_matrix is True:
         return -edisp

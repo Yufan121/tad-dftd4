@@ -59,6 +59,7 @@ def get_atm_dispersion(
     damping_function: Damping = ZeroDamping(),
     s9: Tensor | float | int = defaults.S9,
     alp: Tensor | float | int = defaults.ALP,
+    s9_delta: Tensor | None = None,
 ) -> Tensor:
     """
     Axilrod-Teller-Muto dispersion term.
@@ -158,7 +159,24 @@ def get_atm_dispersion(
         torch.tensor(0.0, **dd),
     )
 
-    energy = ang * fdamp * s9 * c9
+    # NN-D4 v5 (2026-05-18): per-atom shift on s9 is now a *fractional*
+    # correction averaged over the ABC triplet:
+    #   s9_eff_ABC = s9 * (1 + (delta_A + delta_B + delta_C) / 3)
+    # With the upstream NN clamp |delta| <= 0.5 this gives an envelope of
+    # [0.5*s9, 1.5*s9]. For DFTs whose vanilla s9_base = 0 (ATM disabled) the
+    # term stays zero regardless of delta — matches the physics intent that
+    # NN should not silently re-enable a disabled D4 term. Absent => strict
+    # backward-compatible scalar path.
+    if s9_delta is not None:
+        # s9_delta: (..., nat). Broadcast onto the (nat_A, nat_B, nat_C) axes:
+        #   axis -3 = A, axis -2 = B, axis -1 = C.
+        d_A = s9_delta.unsqueeze(-1).unsqueeze(-1)  # (..., nat, 1, 1)
+        d_B = s9_delta.unsqueeze(-2).unsqueeze(-1)  # (..., 1, nat, 1)
+        d_C = s9_delta.unsqueeze(-2).unsqueeze(-2)  # (..., 1, 1, nat)
+        s9_eff = s9 * (1.0 + (d_A + d_B + d_C) / 3.0)
+        energy = ang * fdamp * s9_eff * c9
+    else:
+        energy = ang * fdamp * s9 * c9
     return torch.sum(energy, dim=(-2, -1)) / 6.0
 
 
@@ -239,6 +257,7 @@ class ATM(ThreeBodyTerm, ABC):
             cutoff=cutoff.disp3,
             s9=param.get("s9", torch.tensor(defaults.S9, **self.dd)),
             alp=param.get("alp", torch.tensor(defaults.ALP, **self.dd)),
+            s9_delta=param.get("s9_delta", None),
         )
 
 
@@ -254,10 +273,18 @@ class RadiiBJMixin:
         r4r2: Tensor,
         rvdw: Tensor,
     ) -> Tensor:
+        # pylint: disable=import-outside-toplevel
+        from ..damping.functions import _pair_shift
+
         dd = self.dd  # type: ignore
 
         a1 = param.get("a1", torch.tensor(defaults.A1, **dd))
         a2 = param.get("a2", torch.tensor(defaults.A2, **dd))
+        # NN-D4 v4: per-atom shifts (1/2 pair-averaged) on a1/a2 also propagate
+        # into the 3-body critical radii (R0^AB is shared between 2-body BJ
+        # damping and the 3-body ATM Zero-damping). Absent => scalar path.
+        a1 = _pair_shift(a1, param.get("a1_delta", None))
+        a2 = _pair_shift(a2, param.get("a2_delta", None))
         return (
             a1 * storch.sqrt(3.0 * r4r2.unsqueeze(-1) * r4r2.unsqueeze(-2)) + a2
         )

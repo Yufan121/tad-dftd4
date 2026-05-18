@@ -113,6 +113,29 @@ class Param(TypedDict, total=False):
     delta_base: NotRequired[Tensor] # shape: (max_Z, 1)
     """Delta parameter for charge scaling (shape: (max_Z, 1))."""
 
+    # --- per-atom D4 damping/dispersion shifts (NN-D4 v4 plan) ---
+    # When present, each *_delta is broadcast onto the pair/triplet axes
+    # with 1/2 (pair) or 1/3 (triplet) averaging on top of the scalar base.
+    # Absent => strict backward-compatible behavior.
+
+    s6_delta: NotRequired[Tensor]
+    """Per-atom shift on s6 (2-body, dipole-dipole), shape ``(..., nat)``."""
+
+    s8_delta: NotRequired[Tensor]
+    """Per-atom shift on s8 (2-body, dipole-quadrupole), shape ``(..., nat)``."""
+
+    s10_delta: NotRequired[Tensor]
+    """Per-atom shift on s10 (2-body, quadrupole-quadrupole), shape ``(..., nat)``."""
+
+    a1_delta: NotRequired[Tensor]
+    """Per-atom shift on a1 (BJ damping), shape ``(..., nat)``."""
+
+    a2_delta: NotRequired[Tensor]
+    """Per-atom shift on a2 (BJ damping), shape ``(..., nat)``."""
+
+    s9_delta: NotRequired[Tensor]
+    """Per-atom shift on s9 (3-body ATM), shape ``(..., nat)``."""
+
 class DispersionMethod(str, Enum):
     d3 = "d3"
     d4 = "d4"
