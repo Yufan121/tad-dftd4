@@ -168,6 +168,7 @@ class Damping(ABC):
         dynamic_alpha_delta: Tensor | None = None,
         dynamic_alpha_delta_w: Tensor | None = None,
         alpha_0: Tensor | None = None,
+        alpha_combine: str | None = None,  # noref alpha mode; consumed in d4.py, unused here
         beta: Tensor | None = None,
         delta: Tensor | None = None,
         # per-atom D4 damping/dispersion shifts (NN-D4 v4); unused here

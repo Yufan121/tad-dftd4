@@ -95,7 +95,12 @@ class Param(TypedDict, total=False):
     
     alpha_0: NotRequired[Tensor]
     """Base polarizabilities per element at all frequencies (shape: (max_Z, 23))."""
-    
+
+    alpha_combine: NotRequired[str]
+    """How dynamic_alpha_delta_w combines with alpha_0 in noref mode:
+    "add" (legacy, default) -> alpha_0 + daw ; "mul" (loc1) -> alpha_0 * (1 + daw).
+    Absent/"add" reproduces v1-v8.1 bit-identically."""
+
     beta: NotRequired[Tensor]
     """Beta parameter for charge scaling."""
     

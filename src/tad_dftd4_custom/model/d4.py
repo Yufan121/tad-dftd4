@@ -482,9 +482,21 @@ class D4Model(BaseModel):
         # alpha_base: shape (..., natom, 23)
         alpha_base = alpha_0_data[self.numbers]
         
-        # Add the dynamic correction if provided
+        # Add the dynamic correction if provided. `alpha_combine` selects how the
+        # NN's dynamic_alpha_delta_w enters: "add" (legacy, default) keeps the
+        # additive form `alpha_0 + daw` used by v1-v8.1; "mul" (loc1) uses the
+        # multiplicative form `alpha_0 * (1 + daw)`, mirroring v5's s reframe so
+        # the correction is a per-atom RELATIVE envelope (±0.5 clamp -> ±50%).
+        # Absent / "add" is bit-identical to the legacy path.
+        alpha_combine = param.get("alpha_combine", "add")
         if dynamic_alpha_delta_w is not None:
-            alpha_total = alpha_base + dynamic_alpha_delta_w
+            if alpha_combine == "mul":
+                alpha_total = alpha_base * (1.0 + dynamic_alpha_delta_w)
+            elif alpha_combine == "add":
+                alpha_total = alpha_base + dynamic_alpha_delta_w
+            else:
+                raise ValueError(
+                    f"alpha_combine must be 'add' or 'mul', got {alpha_combine!r}")
         else:
             alpha_total = alpha_base
         
