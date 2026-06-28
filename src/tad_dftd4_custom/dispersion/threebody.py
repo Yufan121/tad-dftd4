@@ -173,7 +173,12 @@ def get_atm_dispersion(
         d_A = s9_delta.unsqueeze(-1).unsqueeze(-1)  # (..., nat, 1, 1)
         d_B = s9_delta.unsqueeze(-2).unsqueeze(-1)  # (..., 1, nat, 1)
         d_C = s9_delta.unsqueeze(-2).unsqueeze(-2)  # (..., 1, 1, nat)
-        s9_eff = s9 * (1.0 + (d_A + d_B + d_C) / 3.0)
+        # s/a-series combine mode (mirrors _pair_shift): "mul" (default, v5) =
+        # fractional envelope; "add" = absolute v4 shift. Unreached when
+        # s9_delta is None (strict scalar backward-compat above).
+        from ..damping.functions import get_damping_combine
+        _tri = (d_A + d_B + d_C) / 3.0
+        s9_eff = (s9 + _tri) if get_damping_combine() == "add" else s9 * (1.0 + _tri)
         energy = ang * fdamp * s9_eff * c9
     else:
         energy = ang * fdamp * s9 * c9

@@ -45,40 +45,80 @@ __all__ = [
     "ZeroDamping",
     "MZeroDamping",
     "OptimisedPowerDamping",
+    "set_damping_combine",
+    "get_damping_combine",
 ]
+
+
+# --- s/a-series combine mode (add|mul) --------------------------------------
+# How the per-atom s6/s8/s10/s9/a1/a2 deltas combine with their base in the
+# NN-D4 forward. Module-level (set once per run by the entry point, mirroring
+# nnxtb's set_clamp_mode), so the deep `_pair_shift` / s9 call sites need no
+# threading. DEFAULT "mul" = v5-v8.1 + loc1 semantics -> all existing
+# checkpoints reproduce bit-identically; only an explicit "add" flips the path.
+_DAMPING_COMBINE: str = "mul"
+
+
+def set_damping_combine(mode: str | None) -> None:
+    """Set the s/a-series combine mode: "mul" (default, v5-v8.1/loc1) or "add".
+
+    `None` -> "mul" (legacy). Call once at the entry point, before any forward.
+    """
+    global _DAMPING_COMBINE
+    m = "mul" if mode is None else str(mode).lower()
+    if m not in ("add", "mul"):
+        raise ValueError(f"damping_combine must be 'add' or 'mul', got {mode!r}")
+    _DAMPING_COMBINE = m
+
+
+def get_damping_combine() -> str:
+    """Return the active s/a-series combine mode ("add"|"mul")."""
+    return _DAMPING_COMBINE
 
 
 def _pair_shift(
     base: Tensor | float | int,
     delta: Tensor | None,
+    combine: str | None = None,
 ) -> Tensor | float | int:
     """
     Build a pair-effective scalar/tensor from a scalar base + per-atom delta.
 
     If ``delta`` is ``None``, return ``base`` unchanged so existing call sites
-    are bit-identical (strict backward compat). Otherwise return a
-    ``(..., nat, nat)`` pair matrix where the per-atom shift is interpreted as
-    a **fractional (multiplicative) correction** to ``base``:
+    are bit-identical (strict backward compat) regardless of ``combine``.
+    Otherwise build the per-atom symmetric pair shift
+    ``s = 0.5 * (delta_i + delta_j)`` and combine with ``base`` per ``combine``:
 
-        pair = base * (1 + 0.5 * (delta_i + delta_j))
+    - ``combine="mul"`` (DEFAULT, v5 2026-05-18 semantics):
+          pair = base * (1 + s)
+      With the upstream NN clamp ``|delta| <= 0.5`` this gives a pair value in
+      ``[0.5*base, 1.5*base]``, i.e. a uniform ±50% RELATIVE envelope around the
+      DFT-specific baseline. When ``base = 0`` (e.g. ``s10_base``) the term
+      vanishes regardless of ``delta`` — disabled D4 terms stay disabled.
 
-    With the upstream NN clamp ``|delta| <= 0.5`` this gives a pair value in
-    ``[0.5*base, 1.5*base]``, i.e. a ±50% physics-aware envelope around the
-    DFT-specific baseline. When ``base = 0`` (e.g. ``s10_base`` for every
-    supported DFT) the term vanishes regardless of ``delta`` — matching the
-    physical convention that disabled D4 terms stay disabled.
+    - ``combine="add"`` (loc1Cadd / fully-additive ablation, = the v4 form):
+          pair = base + s
+      The shift is an ABSOLUTE offset in the parameter's own units, so the
+      effective envelope is NON-uniform across parameters (±0.5 absolute is a
+      large fraction of a small base like a1≈0.4, a small fraction of a large
+      base like a2≈5). NOTE: unlike "mul", a "dead" base=0 term (s10) CAN be
+      re-enabled by a non-zero delta under "add" — that matches the v4 additive
+      semantics; the NN is free to leave it at 0.
 
-    Bit-identical to the no-NN path when ``delta = 0`` *and* (importantly) to
-    the v4 additive form only when ``base = 1`` — base-1 parameters (e.g.
-    ``s6_base = 1.0``, ``s9_base = 1.0``) are unchanged by the reframe, all
-    others scale by ``base``. This is the v5 (2026-05-18) semantics for the
-    s/a-series shifts; the charge-scaling ``beta``/``delta`` keeps v3 additive.
+    ``mul`` is the default so all v5-v8.1 + loc1(mul) checkpoints reproduce
+    bit-identically; only ``combine="add"`` activates the additive path.
 
     ``delta`` is expected to be per-atom of shape ``(..., nat)``.
     """
     if delta is None:
         return base
-    return base * (1.0 + 0.5 * (delta.unsqueeze(-1) + delta.unsqueeze(-2)))
+    mode = _DAMPING_COMBINE if combine is None else combine
+    s = 0.5 * (delta.unsqueeze(-1) + delta.unsqueeze(-2))
+    if mode == "add":
+        return base + s
+    if mode == "mul":
+        return base * (1.0 + s)
+    raise ValueError(f"_pair_shift combine must be 'add' or 'mul', got {mode!r}")
 
 
 class Damping(ABC):
