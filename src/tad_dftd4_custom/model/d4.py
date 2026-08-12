@@ -39,6 +39,8 @@ Example
 """
 from __future__ import annotations
 
+import os
+
 import torch
 from tad_mctc.math import einsum
 from tad_mctc.typing import Literal, Tensor, overload
@@ -49,6 +51,11 @@ from ..utils import is_exceptional, trapzd_noref
 from .base import WF_DEFAULT, BaseModel
 
 __all__ = ["D4Model"]
+
+# Per-forward debug output. This fires once per dispersion evaluation, so a run over
+# a few hundred dimers emits thousands of lines and buries everything else. Gated
+# behind the same environment variable the downstream nnxtb package uses, default off.
+_D4_VERBOSE = os.environ.get("NNXTB_D4_VERBOSE", "0") not in ("0", "", "false", "False")
 
 
 class D4Model(BaseModel):
@@ -315,7 +322,8 @@ class D4Model(BaseModel):
         
         
         if self.c6_cache is not None:
-            print(f"Using cached C6 coefficients")
+            if _D4_VERBOSE:
+                print("Using cached C6 coefficients")
             return self.c6_cache
 
         
