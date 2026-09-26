@@ -62,14 +62,17 @@ _DAMPING_COMBINE: str = "mul"
 
 
 def set_damping_combine(mode: str | None) -> None:
-    """Set the s/a-series combine mode: "mul" (default, v5-v8.1/loc1) or "add".
+    """Set the s/a-series combine mode: "mul" (default, v5-v8.1/loc1), "add" or "auto".
+
+    "auto" (stage-1 SAPT, 2026-09-26): additive for a parameter whose base is
+    exactly 0 (absolute +-0.5 envelope), multiplicative otherwise (+-50%).
 
     `None` -> "mul" (legacy). Call once at the entry point, before any forward.
     """
     global _DAMPING_COMBINE
     m = "mul" if mode is None else str(mode).lower()
-    if m not in ("add", "mul"):
-        raise ValueError(f"damping_combine must be 'add' or 'mul', got {mode!r}")
+    if m not in ("add", "mul", "auto"):
+        raise ValueError(f"damping_combine must be 'add', 'mul' or 'auto', got {mode!r}")
     _DAMPING_COMBINE = m
 
 
@@ -112,6 +115,18 @@ def _radius_shift(
     return out
 
 
+def _combine(base, s: Tensor, mode: str) -> Tensor:
+    """Combine a base with a (pair- or triple-averaged) shift ``s`` per ``mode``."""
+    if mode == "add":
+        return base + s
+    if mode == "mul":
+        return base * (1.0 + s)
+    if mode == "auto":
+        b = torch.as_tensor(base, dtype=s.dtype, device=s.device)
+        return torch.where(b == 0, b + s, b * (1.0 + s))
+    raise ValueError(f"damping combine must be 'add', 'mul' or 'auto', got {mode!r}")
+
+
 def _pair_shift(
     base: Tensor | float | int,
     delta: Tensor | None,
@@ -150,11 +165,7 @@ def _pair_shift(
         return base
     mode = _DAMPING_COMBINE if combine is None else combine
     s = 0.5 * (delta.unsqueeze(-1) + delta.unsqueeze(-2))
-    if mode == "add":
-        return base + s
-    if mode == "mul":
-        return base * (1.0 + s)
-    raise ValueError(f"_pair_shift combine must be 'add' or 'mul', got {mode!r}")
+    return _combine(base, s, mode)
 
 
 class Damping(ABC):
