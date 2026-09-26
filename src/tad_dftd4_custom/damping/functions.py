@@ -47,6 +47,8 @@ __all__ = [
     "OptimisedPowerDamping",
     "set_damping_combine",
     "get_damping_combine",
+    "set_damping_nonneg",
+    "get_damping_nonneg",
 ]
 
 
@@ -74,6 +76,40 @@ def set_damping_combine(mode: str | None) -> None:
 def get_damping_combine() -> str:
     """Return the active s/a-series combine mode ("add"|"mul")."""
     return _DAMPING_COMBINE
+
+
+# --- non-negative BJ radius parameters (opt-in) -------------------------------
+# With damping_combine="add" and a base a1 of 0 (the stage-1 noref SAPT fit), the
+# pair value 0 + 0.5*(d_i+d_j) can go negative, and a negative a1 can make the
+# BJ radius a1*sqrt(3 Q_i Q_j) + a2 vanish for heavy pairs. When enabled, the pair
+# a1 and a2 values are passed through ReLU. DEFAULT False = bit-identical legacy.
+_DAMPING_NONNEG: bool = False
+
+
+def set_damping_nonneg(flag: bool | None) -> None:
+    """Enable ReLU on the pair-effective a1/a2 (BJ radius parameters). `None` -> False."""
+    global _DAMPING_NONNEG
+    _DAMPING_NONNEG = bool(flag) if flag is not None else False
+
+
+def get_damping_nonneg() -> bool:
+    """Return whether the pair a1/a2 non-negativity (ReLU) is active."""
+    return _DAMPING_NONNEG
+
+
+def _radius_shift(
+    base: Tensor | float | int,
+    delta: Tensor | None,
+) -> Tensor | float | int:
+    """``_pair_shift`` for the BJ radius parameters a1/a2, with optional ReLU.
+
+    The ReLU only acts when a per-atom ``delta`` is given and the non-negativity
+    switch is on, so the no-NN path and legacy runs are unchanged.
+    """
+    out = _pair_shift(base, delta)
+    if delta is not None and _DAMPING_NONNEG:
+        out = torch.relu(out)
+    return out
 
 
 def _pair_shift(
@@ -398,8 +434,8 @@ class RationalDamping(Damping):
         """
         assert a1 is not None and a2 is not None
 
-        a1_eff = _pair_shift(a1, a1_delta)
-        a2_eff = _pair_shift(a2, a2_delta)
+        a1_eff = _radius_shift(a1, a1_delta)
+        a2_eff = _radius_shift(a2, a2_delta)
 
         radius = a1_eff * torch.sqrt(radii) + a2_eff
         return 1.0 / (distances.pow(order) + radius.pow(order))
@@ -584,8 +620,8 @@ class OptimisedPowerDamping(Damping):
                 "OP-damping is only implemented for order 6 and 8."
             )
 
-        a1_eff = _pair_shift(a1, a1_delta)
-        a2_eff = _pair_shift(a2, a2_delta)
+        a1_eff = _radius_shift(a1, a1_delta)
+        a2_eff = _radius_shift(a2, a2_delta)
         radius = a1_eff * torch.sqrt(radii) + a2_eff
         ab = radius**bet
 
