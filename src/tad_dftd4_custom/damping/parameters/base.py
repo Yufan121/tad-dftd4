@@ -86,6 +86,11 @@ class Param(TypedDict, total=False):
     # new added
     dynamic_alpha_delta: NotRequired[Tensor]
     """Dynamic alpha delta for all atoms."""
+
+    dynamic_alpha_rel: NotRequired[Tensor]
+    """Relative correction of the reference-weighted polarizabilities (reference
+    mode): alpha = alpha_ref * (1 + rel), shape (..., nat, 23), (..., nat, 1) or
+    (..., nat). Absent -> alpha_ref unchanged."""
     
     c6_delta: NotRequired[Tensor]
     """C6 delta for all atoms."""

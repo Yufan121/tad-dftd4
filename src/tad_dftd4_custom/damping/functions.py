@@ -253,6 +253,7 @@ class Damping(ABC):
         doi: str | None = None,
         c6_delta: Tensor | None = None,
         dynamic_alpha_delta: Tensor | None = None,
+        dynamic_alpha_rel: Tensor | None = None,  # reference-mode alpha scaling; consumed in d4.py
         dynamic_alpha_delta_w: Tensor | None = None,
         alpha_0: Tensor | None = None,
         alpha_combine: str | None = None,  # noref alpha mode; consumed in d4.py, unused here
@@ -325,6 +326,7 @@ class Damping(ABC):
         only_damping: bool = False,
         c6_delta: Tensor | None = None,
         dynamic_alpha_delta: Tensor | None = None,
+        dynamic_alpha_rel: Tensor | None = None,  # reference-mode alpha scaling; consumed in d4.py
         a1_delta: Tensor | None = None,
         a2_delta: Tensor | None = None,
     ) -> Tensor:
@@ -419,6 +421,7 @@ class RationalDamping(Damping):
         only_damping: bool = False,
         c6_delta: Tensor | None = None,
         dynamic_alpha_delta: Tensor | None = None,
+        dynamic_alpha_rel: Tensor | None = None,  # reference-mode alpha scaling; consumed in d4.py
         a1_delta: Tensor | None = None,
         a2_delta: Tensor | None = None,
     ) -> Tensor:
@@ -559,6 +562,7 @@ class MZeroDamping(Damping):
         only_damping: bool = False,
         c6_delta: Tensor | None = None,
         dynamic_alpha_delta: Tensor | None = None,
+        dynamic_alpha_rel: Tensor | None = None,  # reference-mode alpha scaling; consumed in d4.py
         a1_delta: Tensor | None = None,
         a2_delta: Tensor | None = None,
     ) -> Tensor:
@@ -619,6 +623,7 @@ class OptimisedPowerDamping(Damping):
         only_damping: bool = False,
         c6_delta: Tensor | None = None,
         dynamic_alpha_delta: Tensor | None = None,
+        dynamic_alpha_rel: Tensor | None = None,  # reference-mode alpha scaling; consumed in d4.py
         a1_delta: Tensor | None = None,
         a2_delta: Tensor | None = None,
     ) -> Tensor:

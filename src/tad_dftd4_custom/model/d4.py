@@ -385,8 +385,9 @@ class D4Model(BaseModel):
             Weights for the atomic reference systems of shape
             ``(..., nat, nref)``.
         param : Param | None, optional
-            Damping parameters. If provided and contains ``dynamic_alpha_delta``,
-            it will be added to the weighted polarizabilities. Defaults to ``None``.
+            Damping parameters. ``dynamic_alpha_rel`` (if present) scales the
+            weighted polarizabilities by ``1 + rel``; ``dynamic_alpha_delta`` (if
+            present) is then added. Defaults to ``None``.
 
         Returns
         -------
@@ -395,7 +396,16 @@ class D4Model(BaseModel):
         """
         a = self._get_alpha()
         weighted_alpha = einsum("...nr,...nrw->...nw", gw, a)
-        
+
+        # Relative per-atom correction: alpha_ref * (1 + rel). Applied before the
+        # additive delta below; absent -> unchanged (bit-identical).
+        if param is not None:
+            alpha_rel = param.get("dynamic_alpha_rel", None)
+            if alpha_rel is not None:
+                while alpha_rel.dim() < weighted_alpha.dim():
+                    alpha_rel = alpha_rel.unsqueeze(-1)
+                weighted_alpha = weighted_alpha * (1.0 + alpha_rel)
+
         # Apply per-atom alpha correction if provided
         if param is not None:
             alpha_delta = param.get("dynamic_alpha_delta", None)
