@@ -32,6 +32,31 @@ from ..cutoff import Cutoff
 from ..damping import Damping, Param, RationalDamping
 from ..damping.functions import _pair_shift
 from ..model import ModelInst
+
+# --- gradient-only pair weight on C6 (opt-in) ---------------------------------
+# Shared-DFA model B: the C6 gradient of pair AB is multiplied by f_AB**n, where
+# f_AB = R^6 / (R^6 + R0^6) is the order-6 damping factor of that pair, so the
+# polarizability response learns mainly from pairs whose dispersion is not damped.
+# The forward value is unchanged bit for bit (c6.detach() + w * 0). DEFAULT None
+# = off = legacy graph. Gradients reaching positions through C6 (CN, charges) are
+# scaled too, so this is a training-only switch.
+_C6_GRAD_PAIR_POWER: float | None = None
+
+
+def set_c6_grad_pair_power(power: float | None) -> None:
+    """Weight the C6 gradient of every pair by f_damp**power; None or 0 = off."""
+    global _C6_GRAD_PAIR_POWER
+    if power is None or float(power) == 0.0:
+        _C6_GRAD_PAIR_POWER = None
+        return
+    if float(power) < 0:
+        raise ValueError(f"C6 gradient pair power must be >= 0, got {power}")
+    _C6_GRAD_PAIR_POWER = float(power)
+
+
+def get_c6_grad_pair_power() -> float | None:
+    """Return the active C6 gradient pair power (None = off)."""
+    return _C6_GRAD_PAIR_POWER
 from .base import DispTerm
 
 
@@ -172,6 +197,13 @@ def dispersion2(
         damping_function(distances, radii, 8, **param),
         zero,
     )
+
+    if _C6_GRAD_PAIR_POWER is not None and c6.requires_grad:
+        # t6 = 1 / (R^6 + R0^6), so R^6 * t6 is the damping factor f in [0, 1].
+        w = (distances.pow(6) * t6).detach().clamp(0.0, 1.0).pow(_C6_GRAD_PAIR_POWER)
+        c6_const = c6.detach()
+        c6 = c6_const + w * (c6 - c6_const)
+        c8 = c6 * qq
 
     s6 = param.get("s6", torch.tensor(defaults.S6, **dd))
     s8 = param.get("s8", torch.tensor(defaults.S8, **dd))
