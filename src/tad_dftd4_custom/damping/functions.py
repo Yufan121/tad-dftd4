@@ -115,6 +115,27 @@ def _radius_shift(
     return out
 
 
+def _radius_shift_pair(
+    base: Tensor | float | int,
+    delta: Tensor | None,
+    pair_delta: Tensor | None,
+) -> Tensor | float | int:
+    """a1 with the per-atom shift and an optional pair shift (model B element pairs).
+
+    ``pair_delta`` absent -> exactly :func:`_radius_shift` (legacy). Otherwise
+    ``a1 * (1 + s_AB + pair_delta_AB)`` (relative, like the "mul" combine).
+    """
+    out = _radius_shift(base, delta)
+    if pair_delta is None:
+        return out
+    if _DAMPING_COMBINE not in ("mul", "auto"):
+        raise ValueError("a1_pair_delta needs damping_combine 'mul' or 'auto'")
+    out = out + base * pair_delta
+    if _DAMPING_NONNEG:
+        out = torch.relu(out)
+    return out
+
+
 def _combine(base, s: Tensor, mode: str) -> Tensor:
     """Combine a base with a (pair- or triple-averaged) shift ``s`` per ``mode``."""
     if mode == "add":
@@ -267,6 +288,7 @@ class Damping(ABC):
         a1_delta: Tensor | None = None,
         a2_delta: Tensor | None = None,
         s9_delta: Tensor | None = None,
+        a1_pair_delta: Tensor | None = None,
     ) -> Tensor:
         self.doi = doi
 
@@ -303,6 +325,7 @@ class Damping(ABC):
             only_damping=only_damping,
             a1_delta=a1_delta,
             a2_delta=a2_delta,
+            **({} if a1_pair_delta is None else {"a1_pair_delta": a1_pair_delta}),
         )
 
     @abstractmethod
@@ -424,6 +447,7 @@ class RationalDamping(Damping):
         dynamic_alpha_rel: Tensor | None = None,  # reference-mode alpha scaling; consumed in d4.py
         a1_delta: Tensor | None = None,
         a2_delta: Tensor | None = None,
+        a1_pair_delta: Tensor | None = None,
     ) -> Tensor:
         """
         Rational damped dispersion interaction between pairs.
@@ -448,7 +472,7 @@ class RationalDamping(Damping):
         """
         assert a1 is not None and a2 is not None
 
-        a1_eff = _radius_shift(a1, a1_delta)
+        a1_eff = _radius_shift_pair(a1, a1_delta, a1_pair_delta)
         a2_eff = _radius_shift(a2, a2_delta)
 
         radius = a1_eff * torch.sqrt(radii) + a2_eff

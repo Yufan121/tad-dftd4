@@ -143,6 +143,12 @@ class Param(TypedDict, total=False):
     a2_delta: NotRequired[Tensor]
     """Per-atom shift on a2 (BJ damping), shape ``(..., nat)``."""
 
+    a1_pair_delta: NotRequired[Tensor]
+    """Pair shift on a1 (BJ damping), shape ``(..., nat, nat)``, symmetric:
+    a1_AB = a1 * (1 + s_AB + a1_pair_delta_AB) on top of the per-atom shift s_AB.
+    Used by the two-body BJ radius and the ATM BJ radii. Needs damping_combine
+    "mul" or "auto" (a nonzero a1 base)."""
+
     s9_delta: NotRequired[Tensor]
     """Per-atom shift on s9 (3-body ATM), shape ``(..., nat)``."""
 

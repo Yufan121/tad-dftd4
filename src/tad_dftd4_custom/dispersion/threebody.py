@@ -279,7 +279,7 @@ class RadiiBJMixin:
         rvdw: Tensor,
     ) -> Tensor:
         # pylint: disable=import-outside-toplevel
-        from ..damping.functions import _pair_shift, _radius_shift
+        from ..damping.functions import _pair_shift, _radius_shift, _radius_shift_pair
 
         dd = self.dd  # type: ignore
 
@@ -288,7 +288,7 @@ class RadiiBJMixin:
         # NN-D4 v4: per-atom shifts (1/2 pair-averaged) on a1/a2 also propagate
         # into the 3-body critical radii (R0^AB is shared between 2-body BJ
         # damping and the 3-body ATM Zero-damping). Absent => scalar path.
-        a1 = _radius_shift(a1, param.get("a1_delta", None))
+        a1 = _radius_shift_pair(a1, param.get("a1_delta", None), param.get("a1_pair_delta", None))
         a2 = _radius_shift(a2, param.get("a2_delta", None))
         return (
             a1 * storch.sqrt(3.0 * r4r2.unsqueeze(-1) * r4r2.unsqueeze(-2)) + a2
